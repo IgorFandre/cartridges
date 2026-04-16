@@ -93,7 +93,7 @@ class ChatSession:
 
 def main():
     parser = argparse.ArgumentParser(description="Chat with a trained cache model")
-    parser.add_argument("wandb_run_id", help="WandB run ID (e.g., hazy-research/cartridges/ehij7vlt)")
+    parser.add_argument("--wandb_run_id", help="WandB run ID (e.g., hazy-research/cartridges/ehij7vlt)")
     parser.add_argument("--enable_thinking", action="store_true", help="Enable thinking")
     args = parser.parse_args()
     
