@@ -62,6 +62,7 @@ def flex_attention_forward(
     attention_mask: Union[torch.Tensor, "BlockMask"],
     scaling: Optional[float] = None,
     mode: Literal["train", "generate"] = "train",
+    score_mod: Optional[callable] = None,
     **kwargs,
 ) -> tuple[torch.Tensor, torch.Tensor]:
 
@@ -100,6 +101,7 @@ def flex_attention_forward(
         key,
         value,
         block_mask=block_mask,
+        score_mod=score_mod,
         enable_gqa=enable_gqa,
         scale=scaling,
         kernel_options=kernel_options,

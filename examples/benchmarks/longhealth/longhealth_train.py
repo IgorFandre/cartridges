@@ -13,14 +13,14 @@ from cartridges.data.longhealth.evals import LongHealthMultipleChoiceGenerateDat
 from cartridges.utils.wandb import WandBConfig
 
 
-NUM_PATIENTS = 10
+NUM_PATIENTS = 1
 patient_idxs = list(range(1, NUM_PATIENTS + 1))
 patients_str = f"p{NUM_PATIENTS}"
 patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 
-NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "2048"))
+NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
 
-MODEL = os.environ.get("MODEL", "llama")
+MODEL = os.environ.get("MODEL", "qwen1.7b")
 if MODEL == "llama":
     from cartridges.models.llama.modeling_llama import FlexLlamaForCausalLM
     data_sources = [
@@ -32,7 +32,7 @@ if MODEL == "llama":
         pretrained_model_name_or_path="meta-llama/Llama-3.2-3B-Instruct",
         model_cls=FlexLlamaForCausalLM,
     )
-elif MODEL == "qwen":
+elif MODEL == "qwen4b":
     from cartridges.models.qwen.modeling_qwen3 import FlexQwen3ForCausalLM
     data_sources = [
         "hazyresearch/m07d11_longhealth_synthesize_qwen3-4b_p10_n65536-0",
@@ -40,6 +40,16 @@ elif MODEL == "qwen":
     ]
     model=HFModelConfig(
         pretrained_model_name_or_path="Qwen/Qwen3-4b",
+        model_cls=FlexQwen3ForCausalLM,
+    )
+elif MODEL == "qwen1.7b":
+    from cartridges.models.qwen.modeling_qwen3 import FlexQwen3ForCausalLM
+    data_sources = [
+        "hazyresearch/m07d11_longhealth_synthesize_qwen3-4b_p10_n65536-0",
+        "hazyresearch/m07d11_longhealth_synthesize_qwen3-4b_p10_n65536-1"
+    ]
+    model=HFModelConfig(
+        pretrained_model_name_or_path="Qwen/Qwen3-1.7B",
         model_cls=FlexQwen3ForCausalLM,
     )
 else:
@@ -54,12 +64,12 @@ config = TrainConfig(
     
     lr=2e-2,
     epochs=2,
-    global_batch_size=32,
+    global_batch_size=128,
 
     dataset=TrainDataset.Config(
         data_sources=[DataSource(path=source, type="hf") for source in data_sources],
         top_k_logits=20,
-        packed_seq_length=2048,
+        packed_seq_length=1024,
         packing_mode="truncate",
     ),
 
@@ -76,7 +86,7 @@ config = TrainConfig(
             temperature=0.3,
         )
     ],
-    distributed_backend="gloo",
+    distributed_backend="nccl",
 
     wandb=WandBConfig(tags=["train", "longhealth"]),
     output_dir=os.environ.get("CARTRIDGES_OUTPUT_DIR", "."),

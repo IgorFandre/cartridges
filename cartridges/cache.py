@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import itertools
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from pydrantic import ObjectConfig
 import torch
@@ -45,11 +45,12 @@ class TrainableCache(nn.Module):
             beginning of the cache.
     """
     def __init__(
-        self,        
+        self,
         config: AttnConfig,
         init_keys: list[torch.Tensor]=None,
         init_values: list[torch.Tensor]=None,
         num_frozen_tokens: int = 0,
+        per_layer_valid_lengths: Optional[list[int]] = None,
     ):
         super().__init__()
         self.config = config
@@ -64,19 +65,28 @@ class TrainableCache(nn.Module):
             self.trainable_keys, self.trainable_values = None, None
             self._seq_ids = None
             self._init_seq_ids = None
+            self._per_layer_valid_lengths = None
         else:
             self._num_init_tokens = init_keys[0].shape[2]
             self._num_frozen_tokens = num_frozen_tokens
             self._num_trainable_tokens = self._num_init_tokens - num_frozen_tokens
             assert len(init_keys) == config.n_layers == len(init_values)
-            
-            # we initialize the seq ids for the first 
-            # `num_trainable_tokens + num_frozen_tokens` tokens to -1, which means that 
-            # the tokens are part of the cartridge and should be attended to by 
+
+            # per_layer_valid_lengths[l] is the number of valid (non-padded) trainable
+            # tokens for layer l. When set, get_score_mod() returns a score_mod function
+            # that masks padded positions with -inf so they don't affect attention.
+            if per_layer_valid_lengths is not None:
+                assert len(per_layer_valid_lengths) == config.n_layers
+                assert all(v <= self._num_trainable_tokens for v in per_layer_valid_lengths)
+            self._per_layer_valid_lengths = per_layer_valid_lengths
+
+            # we initialize the seq ids for the first
+            # `num_trainable_tokens + num_frozen_tokens` tokens to -1, which means that
+            # the tokens are part of the cartridge and should be attended to by
             # all tokens.
-            _seq_ids =torch.full(
+            _seq_ids = torch.full(
                 (self._num_init_tokens,),
-                fill_value=CARTRIDGE_SEQ_ID, 
+                fill_value=CARTRIDGE_SEQ_ID,
                 dtype=torch.long,
             )
             self.register_buffer("_init_seq_ids", _seq_ids)
@@ -193,6 +203,32 @@ class TrainableCache(nn.Module):
         self._num_tokens = 0
         self._seq_ids = self._init_seq_ids
 
+    def get_score_mod(self, layer_idx: int) -> Optional[Callable]:
+        """Return a FlexAttention score_mod that masks padded cartridge positions.
+
+        Returns None when all cartridge positions are valid (no padding).
+        When per_layer_valid_lengths was set, positions in the range
+        [num_frozen + valid_len, num_frozen + num_trainable) receive -inf bias.
+        """
+        if self._per_layer_valid_lengths is None:
+            return None
+        valid_len = self._per_layer_valid_lengths[layer_idx]
+        max_t = self._num_trainable_tokens
+        if valid_len >= max_t:
+            return None
+        # kv positions: [0, num_frozen) frozen | [num_frozen, num_frozen+max_t) trainable
+        start_pad = self._num_frozen_tokens + valid_len
+        end_pad = self._num_frozen_tokens + max_t
+
+        def score_mod(score, b, h, q_idx, kv_idx):
+            return torch.where(
+                (kv_idx >= start_pad) & (kv_idx < end_pad),
+                torch.full_like(score, float("-inf")),
+                score,
+            )
+
+        return score_mod
+
     def save(self, path: str):
         """Saves the trainable keys and values to the specified path."""
         torch.save(
@@ -201,6 +237,7 @@ class TrainableCache(nn.Module):
                 "trainable_values": self.trainable_values,
                 "frozen_keys": self.frozen_keys,
                 "frozen_values": self.frozen_values,
+                "per_layer_valid_lengths": self._per_layer_valid_lengths,
             },
             path,
         )
@@ -265,6 +302,7 @@ class TrainableCache(nn.Module):
                 )
             ],
             num_frozen_tokens=num_frozen_tokens,
+            per_layer_valid_lengths=checkpoint.get("per_layer_valid_lengths", None),
         )
 
 

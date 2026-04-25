@@ -297,11 +297,13 @@ class LlamaAttention(nn.Module):
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         past_key_value = batch.past_key_values
+        score_mod = None
         if past_key_value is not None:
             key_states, value_states = past_key_value.update(
                 key_states, value_states, batch.seq_ids, self.layer_idx,
                 skip_append=batch.mode == "train"
             )
+            score_mod = past_key_value.get_score_mod(self.layer_idx)
 
             if self.config.attention_dropout > 0:
                 key_states = F.dropout(key_states, p=self.config.attention_dropout, training=self.training)
@@ -315,6 +317,7 @@ class LlamaAttention(nn.Module):
             attention_mask=batch.attention_mask,
             scaling=self.scaling,
             mode=batch.mode,
+            score_mod=score_mod,
         )
         attn_output = attn_output.reshape(*input_shape, -1).contiguous()
         attn_output = self.o_proj(attn_output)
