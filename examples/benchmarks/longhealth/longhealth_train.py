@@ -5,7 +5,7 @@ import socket
 import pydrantic
 from pydrantic.variables import FormatStringVariable
 
-from cartridges.initialization import KVFromText
+from cartridges.initialization import KVFromText, KVFromAttnMatching
 from cartridges.train import GenerationEvalConfig, TrainConfig
 from cartridges.models.config import HFModelConfig
 from cartridges.datasets import TrainDataset, DataSource
@@ -19,6 +19,7 @@ patients_str = f"p{NUM_PATIENTS}"
 patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 
 NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
+ATTN_MATCHING_CKPT = os.environ.get("ATTN_MATCHING_CKPT", None)
 
 MODEL = os.environ.get("MODEL", "qwen1.7b")
 if MODEL == "llama":
@@ -58,8 +59,10 @@ else:
 
 config = TrainConfig(
     model=model,
-    kv_cache_initializer=KVFromText.Config(
-        max_tokens=NUM_TOKENS
+    kv_cache_initializer=(
+        KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT)
+        if ATTN_MATCHING_CKPT
+        else KVFromText.Config(max_tokens=NUM_TOKENS)
     ),
     
     lr=2e-2,
