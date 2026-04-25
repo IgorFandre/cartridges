@@ -3,9 +3,8 @@ from pathlib import Path
 import socket
 
 import pydrantic
-from pydrantic.variables import FormatStringVariable
 
-from cartridges.initialization import KVFromText, KVFromAttnMatching
+from cartridges.initialization import KVFromText, KVFromAttnMatching, KVFromRandomVectors
 from cartridges.train import GenerationEvalConfig, TrainConfig
 from cartridges.models.config import HFModelConfig
 from cartridges.datasets import TrainDataset, DataSource
@@ -20,6 +19,8 @@ patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 
 NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
 ATTN_MATCHING_CKPT = os.environ.get("ATTN_MATCHING_CKPT", None)
+# INIT_MODE: "text" (default) | "random" | "attn_match" (requires ATTN_MATCHING_CKPT)
+INIT_MODE = os.environ.get("INIT_MODE", "attn_match" if ATTN_MATCHING_CKPT else "text")
 
 MODEL = os.environ.get("MODEL", "qwen1.7b")
 if MODEL == "llama":
@@ -56,16 +57,25 @@ elif MODEL == "qwen1.7b":
 else:
     raise ValueError(f"Invalid model: {MODEL}")
 
+LR = 2e-2
+if INIT_MODE == "attn_match":
+    init_tag = f"attn_match_{Path(ATTN_MATCHING_CKPT).stem}"
+elif INIT_MODE == "random":
+    init_tag = f"random_{NUM_TOKENS}toks"
+else:
+    init_tag = f"text_{NUM_TOKENS}toks"
+
+RUN_NAME = f"longhealth_{MODEL}_{patients_str}_{init_tag}_lr{LR}"
 
 config = TrainConfig(
     model=model,
     kv_cache_initializer=(
-        KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT)
-        if ATTN_MATCHING_CKPT
+        KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT) if INIT_MODE == "attn_match"
+        else KVFromRandomVectors.Config(max_tokens=NUM_TOKENS) if INIT_MODE == "random"
         else KVFromText.Config(max_tokens=NUM_TOKENS)
     ),
     
-    lr=2e-2,
+    lr=LR,
     epochs=2,
     global_batch_size=128,
 
@@ -86,14 +96,14 @@ config = TrainConfig(
             name_for_wandb=f"longhealth_{patients_str}",
             generate_max_new_tokens=512,
             batch_size=32,
-            temperature=0.3,
+            temperature=0.0,
         )
     ],
     distributed_backend="nccl",
 
     wandb=WandBConfig(tags=["train", "longhealth"]),
     output_dir=os.environ.get("CARTRIDGES_OUTPUT_DIR", "."),
-    name=FormatStringVariable("longhealth_train_lr{lr}_toks{kv_cache_initializer.max_tokens}"),
+    name=RUN_NAME,
 )
 
 

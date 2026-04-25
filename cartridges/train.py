@@ -112,6 +112,8 @@ class TrainConfig(RunConfig):
 
     seed: int = 42
 
+    log_key_cos_every_n_steps: Optional[int] = None
+
     log_logprob_viz: bool = False
 
     def run(self):
@@ -195,6 +197,7 @@ def train(config: TrainConfig):
             f"Done loading trainable cache, time: {(time.time() - load_start_time):.2f}s"
         )
         cache_tuning = True
+        init_keys_snapshot = [k.detach().cpu().clone() for k in cache._keys]
     else:
         cache_tuning = False
 
@@ -441,24 +444,37 @@ def train(config: TrainConfig):
             if config.wandb is not None and is_rank_zero and do_step:
                 total_num_input_tokens += accum_num_input_tokens.item()
                 total_num_target_tokens += accum_num_target_tokens.item()
-                wandb.log(
-                    {
-                        "train/loss": accum_loss,
-                        "train/perplexity": torch.exp(accum_loss).item(),
-                        "train/epoch_idx": epoch_idx,
-                        "train/optimizer_step": optimizer_step,
-                        "train/iter_idx": iter_idx,
-                        "train/step_num_input_tokens": accum_num_input_tokens,
-                        "train/step_num_target_tokens": accum_num_target_tokens,
-                        "train/num_input_tokens": total_num_input_tokens,
-                        "train/num_target_tokens": total_num_target_tokens,
-                        **{
-                            f"optimizer/lr_group{i}": param_group["lr"]
-                            for i, param_group in enumerate(optimizer.param_groups)
-                        },
+
+                log_dict = {
+                    "train/loss": accum_loss,
+                    "train/perplexity": torch.exp(accum_loss).item(),
+                    "train/epoch_idx": epoch_idx,
+                    "train/optimizer_step": optimizer_step,
+                    "train/iter_idx": iter_idx,
+                    "train/step_num_input_tokens": accum_num_input_tokens,
+                    "train/step_num_target_tokens": accum_num_target_tokens,
+                    "train/num_input_tokens": total_num_input_tokens,
+                    "train/num_target_tokens": total_num_target_tokens,
+                    **{
+                        f"optimizer/lr_group{i}": param_group["lr"]
+                        for i, param_group in enumerate(optimizer.param_groups)
                     },
-                    step=optimizer_step,
-                )
+                }
+
+                if (
+                    cache_tuning
+                    and config.log_key_cos_every_n_steps is not None
+                    and optimizer_step % config.log_key_cos_every_n_steps == 0
+                ):
+                    cos_sims = []
+                    for k_init, k_curr in zip(init_keys_snapshot, cache._keys):
+                        k_i = k_init.flatten().float()
+                        k_c = k_curr.detach().cpu().flatten().float()
+                        cos = F.cosine_similarity(k_i.unsqueeze(0), k_c.unsqueeze(0)).item()
+                        cos_sims.append(cos)
+                    log_dict["train/keys_cos_to_init"] = sum(cos_sims) / len(cos_sims)
+
+                wandb.log(log_dict, step=optimizer_step)
 
             if (
                 config.save_every_n_steps is not None
