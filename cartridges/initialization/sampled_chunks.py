@@ -64,7 +64,7 @@ class KVFromSampledChunks(KVCacheFactory):
 
         with torch.no_grad():
             with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-                input_ids = x_init.unsqueeze(0).to(model.device)
+                input_ids = x_init.to(model.device)
                 seq_ids = torch.zeros(x_init.shape[0], dtype=torch.long, device=model.device)
                 position_ids = torch.arange(x_init.shape[0], dtype=torch.long, device=model.device)
                 model(
