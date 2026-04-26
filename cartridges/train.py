@@ -197,7 +197,7 @@ def train(config: TrainConfig):
             f"Done loading trainable cache, time: {(time.time() - load_start_time):.2f}s"
         )
         cache_tuning = True
-        init_keys_snapshot = [k.detach().cpu().clone() for k in cache._keys]
+        init_keys_snapshot = [k.detach().cpu().clone() for k in cache.trainable_keys]
     else:
         cache_tuning = False
 
@@ -414,8 +414,12 @@ def train(config: TrainConfig):
             accum_num_target_tokens += torch.tensor(0, device=local_rank) # mask.sum().detach() # TODO: fix thisTI
 
             if do_step:
+                grad_norm = torch.nn.utils.clip_grad_norm_(
+                    wrapped_model.parameters() if use_peft else cache.parameters(),
+                    max_norm=float("inf"),
+                )
                 optimizer.step()
-                optimizer.zero_grad()              
+                optimizer.zero_grad()
 
                 # SE (05/02): We are careful to only reduce the loss immediately
                 # after the optimizer step. Doing this outside the `do_step` block
@@ -455,6 +459,7 @@ def train(config: TrainConfig):
                     "train/step_num_target_tokens": accum_num_target_tokens,
                     "train/num_input_tokens": total_num_input_tokens,
                     "train/num_target_tokens": total_num_target_tokens,
+                    "train/grad_norm": grad_norm.item(),
                     **{
                         f"optimizer/lr_group{i}": param_group["lr"]
                         for i, param_group in enumerate(optimizer.param_groups)
@@ -467,7 +472,7 @@ def train(config: TrainConfig):
                     and optimizer_step % config.log_key_cos_every_n_steps == 0
                 ):
                     cos_sims = []
-                    for k_init, k_curr in zip(init_keys_snapshot, cache._keys):
+                    for k_init, k_curr in zip(init_keys_snapshot, cache.trainable_keys):
                         k_i = k_init.flatten().float()
                         k_c = k_curr.detach().cpu().flatten().float()
                         cos = F.cosine_similarity(k_i.unsqueeze(0), k_c.unsqueeze(0)).item()

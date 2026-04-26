@@ -4,11 +4,12 @@ import socket
 
 import pydrantic
 
-from cartridges.initialization import KVFromText, KVFromAttnMatching, KVFromRandomVectors
+from cartridges.initialization import KVFromText, KVFromAttnMatching, KVFromRandomVectors, KVFromSampledChunks
 from cartridges.train import GenerationEvalConfig, TrainConfig
 from cartridges.models.config import HFModelConfig
 from cartridges.datasets import TrainDataset, DataSource
 from cartridges.data.longhealth.evals import LongHealthMultipleChoiceGenerateDataset
+from cartridges.data.longhealth.resources import LongHealthResource
 from cartridges.utils.wandb import WandBConfig
 
 
@@ -19,7 +20,8 @@ patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 
 NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
 ATTN_MATCHING_CKPT = os.environ.get("ATTN_MATCHING_CKPT", None)
-# INIT_MODE: "text" (default) | "random" | "attn_match" (requires ATTN_MATCHING_CKPT)
+SCI_CHUNK_SIZE = int(os.environ.get("SCI_CHUNK_SIZE", "64"))
+# INIT_MODE: "text" (default) | "random" | "attn_match" (requires ATTN_MATCHING_CKPT) | "sci"
 INIT_MODE = os.environ.get("INIT_MODE", "attn_match" if ATTN_MATCHING_CKPT else "text")
 
 MODEL = os.environ.get("MODEL", "qwen1.7b")
@@ -62,18 +64,30 @@ if INIT_MODE == "attn_match":
     init_tag = f"attn_match_{Path(ATTN_MATCHING_CKPT).stem}"
 elif INIT_MODE == "random":
     init_tag = f"random_{NUM_TOKENS}toks"
+elif INIT_MODE == "sci":
+    init_tag = f"sci_{NUM_TOKENS}toks_c{SCI_CHUNK_SIZE}"
 else:
     init_tag = f"text_{NUM_TOKENS}toks"
 
 RUN_NAME = f"longhealth_{MODEL}_{patients_str}_{init_tag}_lr{LR}"
 
+if INIT_MODE == "sci":
+    _corpus_text = LongHealthResource(LongHealthResource.Config(patient_ids=patient_ids)).to_string()
+    _kv_initializer = KVFromSampledChunks.Config(
+        max_tokens=NUM_TOKENS,
+        chunk_size=SCI_CHUNK_SIZE,
+        text=_corpus_text,
+    )
+elif INIT_MODE == "attn_match":
+    _kv_initializer = KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT)
+elif INIT_MODE == "random":
+    _kv_initializer = KVFromRandomVectors.Config(max_tokens=NUM_TOKENS)
+else:
+    _kv_initializer = KVFromText.Config(max_tokens=NUM_TOKENS)
+
 config = TrainConfig(
     model=model,
-    kv_cache_initializer=(
-        KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT) if INIT_MODE == "attn_match"
-        else KVFromRandomVectors.Config(max_tokens=NUM_TOKENS) if INIT_MODE == "random"
-        else KVFromText.Config(max_tokens=NUM_TOKENS)
-    ),
+    kv_cache_initializer=_kv_initializer,
     
     lr=LR,
     epochs=2,
