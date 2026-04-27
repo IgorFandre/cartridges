@@ -181,7 +181,7 @@ class Qwen3Attention(nn.Module):
                 key_states, value_states, batch.seq_ids, self.layer_idx,
                 skip_append=batch.mode == "train"
             )
-            score_mod = past_key_value.get_score_mod(self.layer_idx)
+            score_mod = past_key_value.get_score_mod(self.layer_idx, num_query_heads=query_states.shape[1])
 
         attn_output = flex_attention_forward(
             self,

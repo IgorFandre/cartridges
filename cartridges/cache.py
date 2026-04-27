@@ -51,6 +51,7 @@ class TrainableCache(nn.Module):
         init_values: list[torch.Tensor]=None,
         num_frozen_tokens: int = 0,
         per_layer_valid_lengths: Optional[list[int]] = None,
+        per_layer_beta: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         self.config = config
@@ -66,6 +67,7 @@ class TrainableCache(nn.Module):
             self._seq_ids = None
             self._init_seq_ids = None
             self._per_layer_valid_lengths = None
+            self._per_layer_beta = None
         else:
             self._num_init_tokens = init_keys[0].shape[2]
             self._num_frozen_tokens = num_frozen_tokens
@@ -79,6 +81,16 @@ class TrainableCache(nn.Module):
                 assert len(per_layer_valid_lengths) == config.n_layers
                 assert all(v <= self._num_trainable_tokens for v in per_layer_valid_lengths)
             self._per_layer_valid_lengths = per_layer_valid_lengths
+
+            # per_layer_beta[l, h, t] is the attention bias for cartridge position t,
+            # KV head h, layer l. Shape: (n_layers, n_kv_heads, global_max_valid).
+            # Only positions [0, per_layer_valid_lengths[l]) are meaningful per layer.
+            if per_layer_beta is not None:
+                assert per_layer_beta.shape[0] == config.n_layers
+                assert per_layer_beta.shape[1] == config.n_heads
+                self.register_buffer("_per_layer_beta", per_layer_beta)
+            else:
+                self._per_layer_beta = None
 
             # we initialize the seq ids for the first
             # `num_trainable_tokens + num_frozen_tokens` tokens to -1, which means that
@@ -203,29 +215,51 @@ class TrainableCache(nn.Module):
         self._num_tokens = 0
         self._seq_ids = self._init_seq_ids
 
-    def get_score_mod(self, layer_idx: int) -> Optional[Callable]:
-        """Return a FlexAttention score_mod that masks padded cartridge positions.
+    def get_score_mod(self, layer_idx: int, num_query_heads: Optional[int] = None) -> Optional[Callable]:
+        """Return a FlexAttention score_mod that adds attention_matching beta bias
+        and masks padded cartridge positions.
 
-        Returns None when all cartridge positions are valid (no padding).
-        When per_layer_valid_lengths was set, positions in the range
-        [num_frozen + valid_len, num_frozen + num_trainable) receive -inf bias.
+        Returns None when there is no beta and all cartridge positions are valid.
         """
-        if self._per_layer_valid_lengths is None:
+        has_beta = self._per_layer_beta is not None
+        has_valid_lengths = self._per_layer_valid_lengths is not None
+
+        if not has_beta and not has_valid_lengths:
             return None
-        valid_len = self._per_layer_valid_lengths[layer_idx]
+
+        valid_len = self._per_layer_valid_lengths[layer_idx] if has_valid_lengths else self._num_trainable_tokens
         max_t = self._num_trainable_tokens
-        if valid_len >= max_t:
-            return None
-        # kv positions: [0, num_frozen) frozen | [num_frozen, num_frozen+max_t) trainable
         start_pad = self._num_frozen_tokens + valid_len
         end_pad = self._num_frozen_tokens + max_t
+        needs_pad_mask = start_pad < end_pad
+
+        if not has_beta and not needs_pad_mask:
+            return None
+
+        if has_beta:
+            beta = self._per_layer_beta[layer_idx]  # (n_kv_heads, global_max_valid)
+            n_kv_heads = beta.shape[0]
+            q_to_kv = (num_query_heads // n_kv_heads) if num_query_heads else 1
+            frozen = self._num_frozen_tokens
+
+        if has_beta:
+            beta_max_pos = beta.shape[1] - 1
 
         def score_mod(score, b, h, q_idx, kv_idx):
-            return torch.where(
-                (kv_idx >= start_pad) & (kv_idx < end_pad),
-                torch.full_like(score, float("-inf")),
-                score,
-            )
+            result = score
+            if has_beta:
+                kv_head = h // q_to_kv
+                # Clamp to prevent OOB indexing for context tokens; where() guards actual use.
+                cart_pos = torch.clamp(kv_idx - frozen, 0, beta_max_pos)
+                in_valid = (kv_idx >= frozen) & (kv_idx < start_pad)
+                result = torch.where(in_valid, result + beta[kv_head, cart_pos], result)
+            if needs_pad_mask:
+                result = torch.where(
+                    (kv_idx >= start_pad) & (kv_idx < end_pad),
+                    torch.full_like(result, float("-inf")),
+                    result,
+                )
+            return result
 
         return score_mod
 
@@ -238,6 +272,7 @@ class TrainableCache(nn.Module):
                 "frozen_keys": self.frozen_keys,
                 "frozen_values": self.frozen_values,
                 "per_layer_valid_lengths": self._per_layer_valid_lengths,
+                "per_layer_beta": self._per_layer_beta,
             },
             path,
         )
@@ -303,6 +338,7 @@ class TrainableCache(nn.Module):
             ],
             num_frozen_tokens=num_frozen_tokens,
             per_layer_valid_lengths=checkpoint.get("per_layer_valid_lengths", None),
+            per_layer_beta=checkpoint.get("per_layer_beta", None),
         )
 
 

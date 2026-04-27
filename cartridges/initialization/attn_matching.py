@@ -60,6 +60,7 @@ class KVFromAttnMatching(KVCacheFactory):
         per_layer_keys: list[torch.Tensor] = []
         per_layer_values: list[torch.Tensor] = []
         per_layer_valid_lengths: list[int] = []
+        per_layer_beta_list: list[torch.Tensor] = []
 
         for layer_idx, layer_data in enumerate(layers):
             c1 = layer_data["c1"]   # (B, KV, T, D) or (KV, T, D)
@@ -97,11 +98,22 @@ class KVFromAttnMatching(KVCacheFactory):
             per_layer_keys.append(c1[:, :min_valid, :].unsqueeze(0).contiguous())   # (1, KV, T_l, D)
             per_layer_values.append(c2[:, :min_valid, :].unsqueeze(0).contiguous())
             per_layer_valid_lengths.append(min_valid)
+            # Store finite beta values for valid positions — used as attention bias.
+            per_layer_beta_list.append(beta[:, :min_valid].contiguous())  # (KV, T_l)
 
             logger.info(f"Layer {layer_idx}: T={T}, min_valid={min_valid}")
 
         global_max = max(per_layer_valid_lengths)
         logger.info(f"Global max valid length across layers: {global_max}")
+
+        # Pad beta tensors to global_max and stack into (n_layers, n_kv_heads, global_max).
+        n_kv_heads_global = per_layer_beta_list[0].shape[0]
+        beta_dtype = per_layer_beta_list[0].dtype
+        per_layer_beta_padded = torch.zeros(
+            n_layers, n_kv_heads_global, global_max, dtype=beta_dtype
+        )
+        for l, b in enumerate(per_layer_beta_list):
+            per_layer_beta_padded[l, :, :b.shape[1]] = b
 
         # Build attn_config from checkpoint data if not supplied.
         if attn_config is None:
@@ -136,6 +148,7 @@ class KVFromAttnMatching(KVCacheFactory):
             init_values=init_values,
             num_frozen_tokens=num_frozen,
             per_layer_valid_lengths=per_layer_valid_lengths,
+            per_layer_beta=per_layer_beta_padded,
         )
 
         logger.info(

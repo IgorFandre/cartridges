@@ -783,7 +783,7 @@ def evaluate_generations(
                         "convo_id": element.convo_id,
                         "sample_idx": sample_idx,
                         "num_system_and_user_tokens": element.input_ids.shape[1],
-                        "num_assistant_tokens": len(pred_ids),
+                        "num_assistant_tokens": len(curr_pred_ids),
                         **metrics,
                         **element.metadata,
                         **extras,
