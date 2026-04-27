@@ -198,6 +198,7 @@ def train(config: TrainConfig):
         )
         cache_tuning = True
         init_keys_snapshot = [k.detach().cpu().clone() for k in cache.trainable_keys]
+        init_values_snapshot = [v.detach().cpu().clone() for v in cache.trainable_values]
     else:
         cache_tuning = False
 
@@ -478,6 +479,14 @@ def train(config: TrainConfig):
                         cos = F.cosine_similarity(k_i.unsqueeze(0), k_c.unsqueeze(0)).item()
                         cos_sims.append(cos)
                     log_dict["train/keys_cos_to_init"] = sum(cos_sims) / len(cos_sims)
+
+                    val_cos_sims = []
+                    for v_init, v_curr in zip(init_values_snapshot, cache.trainable_values):
+                        v_i = v_init.flatten().float()
+                        v_c = v_curr.detach().cpu().flatten().float()
+                        cos = F.cosine_similarity(v_i.unsqueeze(0), v_c.unsqueeze(0)).item()
+                        val_cos_sims.append(cos)
+                    log_dict["train/values_cos_to_init"] = sum(val_cos_sims) / len(val_cos_sims)
 
                 wandb.log(log_dict, step=optimizer_step)
 
