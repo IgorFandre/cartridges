@@ -96,7 +96,7 @@ def score_prediction(pred: str, question: LongHealthQuestion) -> Tuple[bool, Opt
         closest = max(options, key=lambda x: SequenceMatcher(None, extracted, x).ratio())
         return closest == question.correct.strip().lower(), extracted
     else:
-        return question.answer_a.strip().lower() == question.correct.strip().lower(), None
+        return False, None
 
 
 def main():
@@ -104,7 +104,7 @@ def main():
     parser.add_argument("--checkpoint", required=True, help="Path to .pt cache checkpoint")
     parser.add_argument("--questions", required=True, help="Path to JSONL questions file")
     parser.add_argument("--model", default="qwen1.7b", choices=list(MODEL_CONFIGS.keys()))
-    parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--max-new-tokens", type=int, default=2048)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output", default=None, help="Save per-question results to JSON")
