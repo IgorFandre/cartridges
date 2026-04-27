@@ -4,7 +4,7 @@ import socket
 
 import pydrantic
 
-from cartridges.initialization import KVFromText, KVFromAttnMatching, KVFromRandomVectors, KVFromSampledChunks
+from cartridges.initialization import KVFromText, KVFromAttnMatching, KVFromRandomVectors, KVFromSampledChunks, KVFromTextPerturbed
 from cartridges.train import GenerationEvalConfig, TrainConfig
 from cartridges.models.config import HFModelConfig
 from cartridges.datasets import TrainDataset, DataSource
@@ -21,7 +21,11 @@ patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
 ATTN_MATCHING_CKPT = os.environ.get("ATTN_MATCHING_CKPT", None)
 SCI_CHUNK_SIZE = int(os.environ.get("SCI_CHUNK_SIZE", "64"))
-# INIT_MODE: "text" (default) | "random" | "attn_match" (requires ATTN_MATCHING_CKPT) | "sci"
+KEY_SCALE = float(os.environ.get("KEY_SCALE", "2.0"))
+KEY_NOISE_STD = float(os.environ.get("KEY_NOISE_STD", "0.05"))
+NOISE_SEED = int(os.environ.get("NOISE_SEED", "42"))
+# INIT_MODE: "text" | "random" | "attn_match" (requires ATTN_MATCHING_CKPT) | "sci"
+#          | "text_scaled" | "text_noisy" | "text_scaled_noisy"
 INIT_MODE = os.environ.get("INIT_MODE", "attn_match" if ATTN_MATCHING_CKPT else "text")
 
 MODEL = os.environ.get("MODEL", "qwen1.7b")
@@ -66,6 +70,12 @@ elif INIT_MODE == "random":
     init_tag = f"random_{NUM_TOKENS}toks"
 elif INIT_MODE == "sci":
     init_tag = f"sci_{NUM_TOKENS}toks_c{SCI_CHUNK_SIZE}"
+elif INIT_MODE == "text_scaled":
+    init_tag = f"text_scaled_{NUM_TOKENS}toks_a{KEY_SCALE}"
+elif INIT_MODE == "text_noisy":
+    init_tag = f"text_noisy_{NUM_TOKENS}toks_s{KEY_NOISE_STD}"
+elif INIT_MODE == "text_scaled_noisy":
+    init_tag = f"text_scaled_noisy_{NUM_TOKENS}toks_a{KEY_SCALE}_s{KEY_NOISE_STD}"
 else:
     init_tag = f"text_{NUM_TOKENS}toks"
 
@@ -82,6 +92,24 @@ elif INIT_MODE == "attn_match":
     _kv_initializer = KVFromAttnMatching.Config(path=ATTN_MATCHING_CKPT)
 elif INIT_MODE == "random":
     _kv_initializer = KVFromRandomVectors.Config(max_tokens=NUM_TOKENS)
+elif INIT_MODE == "text_scaled":
+    _kv_initializer = KVFromTextPerturbed.Config(
+        max_tokens=NUM_TOKENS,
+        key_scale=KEY_SCALE,
+    )
+elif INIT_MODE == "text_noisy":
+    _kv_initializer = KVFromTextPerturbed.Config(
+        max_tokens=NUM_TOKENS,
+        key_noise_std=KEY_NOISE_STD,
+        noise_seed=NOISE_SEED,
+    )
+elif INIT_MODE == "text_scaled_noisy":
+    _kv_initializer = KVFromTextPerturbed.Config(
+        max_tokens=NUM_TOKENS,
+        key_scale=KEY_SCALE,
+        key_noise_std=KEY_NOISE_STD,
+        noise_seed=NOISE_SEED,
+    )
 else:
     _kv_initializer = KVFromText.Config(max_tokens=NUM_TOKENS)
 
