@@ -118,7 +118,7 @@ config = TrainConfig(
     kv_cache_initializer=_kv_initializer,
     
     lr=LR,
-    epochs=2,
+    epochs=5,
     global_batch_size=128,
 
     dataset=TrainDataset.Config(
@@ -136,7 +136,7 @@ config = TrainConfig(
                 patient_ids=patient_ids,
             ),
             name_for_wandb=f"longhealth_{patients_str}",
-            generate_max_new_tokens=512,
+            generate_max_new_tokens=2048,
             batch_size=32,
             temperature=0.0,
         )
