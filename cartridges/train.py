@@ -493,18 +493,24 @@ def train(config: TrainConfig):
                     cos_sims = []
                     for k_init, k_curr in zip(init_keys_snapshot, cache.trainable_keys):
                         k_i = k_init.flatten().float()
+                        if k_i.norm() == 0:
+                            continue
                         k_c = k_curr.detach().cpu().flatten().float()
                         cos = F.cosine_similarity(k_i.unsqueeze(0), k_c.unsqueeze(0)).item()
                         cos_sims.append(cos)
-                    log_dict["train/keys_cos_to_init"] = sum(cos_sims) / len(cos_sims)
+                    if cos_sims:
+                        log_dict["train/keys_cos_to_init"] = sum(cos_sims) / len(cos_sims)
 
                     val_cos_sims = []
                     for v_init, v_curr in zip(init_values_snapshot, cache.trainable_values):
                         v_i = v_init.flatten().float()
+                        if v_i.norm() == 0:
+                            continue
                         v_c = v_curr.detach().cpu().flatten().float()
                         cos = F.cosine_similarity(v_i.unsqueeze(0), v_c.unsqueeze(0)).item()
                         val_cos_sims.append(cos)
-                    log_dict["train/values_cos_to_init"] = sum(val_cos_sims) / len(val_cos_sims)
+                    if val_cos_sims:
+                        log_dict["train/values_cos_to_init"] = sum(val_cos_sims) / len(val_cos_sims)
 
                 wandb.log(log_dict, step=optimizer_step)
 
