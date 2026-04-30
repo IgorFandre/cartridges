@@ -99,6 +99,12 @@ class TrainConfig(RunConfig):
     kv_cache_initializer: Optional[KVCacheFactory.Config] = None
     pretrained_cache_path: Optional[str] = None
 
+    # Zero out the first N and/or last M layers of the KV cache before training.
+    # Useful for ablations: e.g. zero_layers_from_start=4 zeros layers 0..3,
+    # zero_layers_from_end=4 zeros the last 4 layers.
+    zero_layers_from_start: int = 0
+    zero_layers_from_end: int = 0
+
     # NOTE: steps here is the number of **optimizer steps**, which we keep track of
     # with the `optimizer_step` variable. This is different than the number of batches
     # processed, which is given by `iter_idx`.
@@ -197,6 +203,18 @@ def train(config: TrainConfig):
             f"Done loading trainable cache, time: {(time.time() - load_start_time):.2f}s"
         )
         cache_tuning = True
+
+        n_layers = attn_config.n_layers
+        if config.zero_layers_from_start > 0 or config.zero_layers_from_end > 0:
+            zero_start = config.zero_layers_from_start
+            zero_end = config.zero_layers_from_end
+            layers_to_zero = set(range(zero_start)) | set(range(n_layers - zero_end, n_layers))
+            logger.info(f"Zeroing KV cache layers: {sorted(layers_to_zero)}")
+            with torch.no_grad():
+                for l in layers_to_zero:
+                    cache.trainable_keys[l].zero_()
+                    cache.trainable_values[l].zero_()
+
         init_keys_snapshot = [k.detach().cpu().clone() for k in cache.trainable_keys]
         init_values_snapshot = [v.detach().cpu().clone() for v in cache.trainable_values]
     else:

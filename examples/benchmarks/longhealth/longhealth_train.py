@@ -19,6 +19,8 @@ patients_str = f"p{NUM_PATIENTS}"
 patient_ids = [f"patient_{idx:02d}" for idx in patient_idxs]
 
 NUM_TOKENS = int(os.environ.get("NUM_TOKENS", "1024"))
+ZERO_LAYERS_FROM_START = int(os.environ.get("ZERO_LAYERS_FROM_START", "0"))
+ZERO_LAYERS_FROM_END = int(os.environ.get("ZERO_LAYERS_FROM_END", "0"))
 ATTN_MATCHING_CKPT = os.environ.get("ATTN_MATCHING_CKPT", None)
 SCI_CHUNK_SIZE = int(os.environ.get("SCI_CHUNK_SIZE", "64"))
 KEY_SCALE = float(os.environ.get("KEY_SCALE", "2.0"))
@@ -79,7 +81,13 @@ elif INIT_MODE == "text_scaled_noisy":
 else:
     init_tag = f"text_{NUM_TOKENS}toks"
 
-RUN_NAME = f"longhealth_{MODEL}_{patients_str}_{init_tag}_lr{LR}"
+_zero_tag = ""
+if ZERO_LAYERS_FROM_START > 0:
+    _zero_tag += f"_zs{ZERO_LAYERS_FROM_START}"
+if ZERO_LAYERS_FROM_END > 0:
+    _zero_tag += f"_ze{ZERO_LAYERS_FROM_END}"
+
+RUN_NAME = f"longhealth_{MODEL}_{patients_str}_{init_tag}{_zero_tag}_lr{LR}"
 
 if INIT_MODE == "sci":
     _corpus_text = LongHealthResource(LongHealthResource.Config(patient_ids=patient_ids)).to_string()
@@ -141,6 +149,8 @@ config = TrainConfig(
             temperature=0.0,
         )
     ],
+    zero_layers_from_start=ZERO_LAYERS_FROM_START,
+    zero_layers_from_end=ZERO_LAYERS_FROM_END,
     distributed_backend="nccl",
 
     wandb=WandBConfig(tags=["train", "longhealth"]),
