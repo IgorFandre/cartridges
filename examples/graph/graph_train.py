@@ -22,6 +22,7 @@ from cartridges.initialization.random import KVFromRandomVectors
 from cartridges.models import HFModelConfig, FlexQwen3ForCausalLM
 from cartridges.train import TrainConfig, GenerationEvalConfig
 from cartridges.datasets import DataSource, TrainDataset
+from cartridges.utils.wandb import WandBConfig
 
 from examples.graph.graph_evals import GraphRelationshipMCEvalDataset
 
@@ -46,10 +47,10 @@ config = TrainConfig(
         data_sources=[
             DataSource(path=TRAIN_DATASET_PATH, type="local"),
         ],
-        targets="tokens",       # no pre-computed LLM logprobs, CE loss on tokens
+        targets="tokens",
         top_k_logits=0,
-        packed_seq_length=256,
-        packing_mode="pad",
+        packed_seq_length=1024,
+        packing_mode="truncate",
     ),
 
     lr=1e-3,
@@ -64,7 +65,7 @@ config = TrainConfig(
                 val_path=VAL_DATASET_PATH,
             ),
             name_for_wandb="graph_accuracy",
-            generate_max_new_tokens=512,   # space for <think>...</think>
+            generate_max_new_tokens=1024,   # space for <think>...</think>
             temperature=0.0,
             batch_size=4,
             num_samples=1,
@@ -73,8 +74,8 @@ config = TrainConfig(
 
     save_every_n_steps=200,
     save_after_training=True,
-    save_to_wandb=False,
-    wandb=None,
+    save_to_wandb=True,
+    wandb=WandBConfig(tags=["train", "graph"]),
 
     distributed_backend="gloo",
     seed=42,
