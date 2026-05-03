@@ -1,18 +1,16 @@
 """
-Generates train_dataset.parquet and val_dataset.parquet from family_tree.json.
+Generates train/val parquets from family_tree.json.
 
-Each pair (A, B) where a path exists becomes one Conversation:
-  user:      "What is the relationship between Alice and Tom?"
-  assistant: "Alice is Valery's sister. Valery is Tom's mother. So Alice is Tom's aunt."
-
-Metadata per conversation: person_a, person_b, final_rel, chain_length.
-
-Split: 80% train / 20% val (deterministic, by index).
+Two modes:
+  --no-context  (default) system_prompt=""  — Exp 1: cartridge memorizes Q&A
+  --with-context           system_prompt=family_tree_text — Exp 2: cartridge distills corpus
 
 Usage:
-    python examples/graph/graph_generate.py
+    python examples/graph/graph_generate.py              # → train/val_dataset.parquet
+    python examples/graph/graph_generate.py --with-context  # → train/val_dataset_ctx.parquet
 """
 import sys
+from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[2]))
@@ -21,19 +19,17 @@ from examples.graph.family_tree import FamilyTree
 from cartridges.structs import Conversation, write_conversations
 
 
-def build_dataset(tree: FamilyTree) -> list[Conversation]:
+def build_dataset(tree: FamilyTree, system_prompt: str = "") -> list[Conversation]:
     conversations = []
-    pairs = tree.all_pairs()
     skipped = 0
 
-    for a_name, b_name in pairs:
+    for a_name, b_name in tree.all_pairs():
         result = tree.find_path_reasoning(a_name, b_name)
         if result is None:
             skipped += 1
             continue
 
         reasoning_str, final_rel, chain_length = result
-
 
         conv = Conversation(
             messages=[
@@ -50,7 +46,7 @@ def build_dataset(tree: FamilyTree) -> list[Conversation]:
                     top_logprobs=None,
                 ),
             ],
-            system_prompt="",
+            system_prompt=system_prompt,
             metadata={
                 "person_a": a_name,
                 "person_b": b_name,
@@ -61,11 +57,13 @@ def build_dataset(tree: FamilyTree) -> list[Conversation]:
         )
         conversations.append(conv)
 
-    print(f"Generated {len(conversations)} conversations, skipped {skipped} pairs (no path)")
+    print(f"Generated {len(conversations)} conversations, skipped {skipped} (no path)")
     return conversations
 
 
 if __name__ == "__main__":
+    with_context = "--with-context" in sys.argv
+
     tree_path = Path(__file__).parent / "family_tree.json"
     if not tree_path.exists():
         print("family_tree.json not found. Run generate_tree.py first.")
@@ -74,30 +72,39 @@ if __name__ == "__main__":
     tree = FamilyTree.load(tree_path)
     print(f"Loaded {len(tree.people)} people from {tree_path}")
 
-    conversations = build_dataset(tree)
+    system_prompt = ""
+    suffix = ""
+    if with_context:
+        system_prompt = tree.to_text()
+        suffix = "_ctx"
+        txt_path = Path(__file__).parent / "family_tree.txt"
+        txt_path.write_text(system_prompt)
+        print(f"Saved family tree text ({len(system_prompt)} chars) → {txt_path}")
+        print("\nFamily tree text preview:")
+        print("\n".join(system_prompt.splitlines()[:5]) + "\n...")
 
-    # 80/20 split
+    conversations = build_dataset(tree, system_prompt=system_prompt)
+
     split = int(len(conversations) * 0.8)
     train_convs = conversations[:split]
     val_convs = conversations[split:]
 
-    # Print chain length distribution
-    from collections import Counter
     chain_counts = Counter(c.metadata["chain_length"] for c in conversations)
-    print(f"\nChain length distribution: {dict(sorted(chain_counts.items()))}")
+    print(f"Chain length distribution: {dict(sorted(chain_counts.items()))}")
 
-    # Print a few samples
-    print("\nSample conversations:")
-    for conv in conversations[:3]:
-        print(f"\n  Q: {conv.messages[0].content}")
+    print("\nSample:")
+    for conv in conversations[:2]:
+        print(f"  Q: {conv.messages[0].content}")
         print(f"  A: {conv.messages[1].content}")
-        print(f"  chain_length: {conv.metadata['chain_length']}")
+        if conv.system_prompt:
+            print(f"  sys: {conv.system_prompt[:60]}...")
+        print()
 
     out_dir = Path(__file__).parent
-    train_path = out_dir / "train_dataset.parquet"
-    val_path = out_dir / "val_dataset.parquet"
+    train_path = out_dir / f"train_dataset{suffix}.parquet"
+    val_path = out_dir / f"val_dataset{suffix}.parquet"
 
     write_conversations(train_convs, str(train_path))
     write_conversations(val_convs, str(val_path))
-    print(f"\nTrain: {len(train_convs)} conversations → {train_path}")
-    print(f"Val:   {len(val_convs)} conversations → {val_path}")
+    print(f"Train: {len(train_convs)} → {train_path}")
+    print(f"Val:   {len(val_convs)} → {val_path}")

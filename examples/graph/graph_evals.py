@@ -59,8 +59,9 @@ def _extract_answer_letter(pred: str) -> str | None:
 class GraphRelationshipMCEvalDataset(GenerateEvalDataset):
     class Config(GenerateEvalDataset.Config):
         _pass_as_config = True
-        val_path: str       # path to val_dataset.parquet
+        val_path: str           # path to val_dataset.parquet
         seed: int = 42
+        include_system_prompt: bool = False  # if True, prepend system_prompt from parquet
 
     def __init__(
         self,
@@ -112,7 +113,11 @@ class GraphRelationshipMCEvalDataset(GenerateEvalDataset):
         if self.tokenizer.name_or_path in MODELS_WITH_THINKING:
             kwargs["enable_thinking"] = True
 
-        prompt_messages = [{"role": "user", "content": prompt_text}]
+        prompt_messages = []
+        if self.config.include_system_prompt and conv.system_prompt:
+            prompt_messages.append({"role": "system", "content": conv.system_prompt})
+        prompt_messages.append({"role": "user", "content": prompt_text})
+
         input_ids = self.tokenizer.apply_chat_template(
             prompt_messages,
             add_generation_prompt=True,

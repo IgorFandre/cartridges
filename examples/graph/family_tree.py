@@ -345,6 +345,37 @@ class FamilyTree:
             current_rel = composed
         return current_rel
 
+    def to_text(self) -> str:
+        """Human-readable description of the family tree for use as corpus text."""
+        lines = ["Family tree:"]
+
+        # Couples and their children
+        children_of: dict[str, list[str]] = {}
+        for edge in self.parent_child:
+            children_of.setdefault(edge["parent"], []).append(edge["child"])
+
+        described: set[str] = set()
+        for pair in self.spouses:
+            a, b = pair["a"], pair["b"]
+            kids_a = set(children_of.get(a, []))
+            kids_b = set(children_of.get(b, []))
+            shared = sorted(kids_a & kids_b)
+            lines.append(f"{a} is married to {b}.")
+            if shared:
+                lines.append(f"{a} and {b} have children: {', '.join(shared)}.")
+            described.update([a, b])
+
+        # Single parents or people not in spouse list
+        for edge in self.parent_child:
+            p = edge["parent"]
+            if p not in described:
+                kids = sorted(children_of.get(p, []))
+                if kids:
+                    lines.append(f"{p} is the parent of {', '.join(kids)}.")
+                described.add(p)
+
+        return "\n".join(lines)
+
     def all_pairs(self) -> list[tuple[str, str]]:
         names = [p["name"] for p in self.people]
         return [(a, b) for a in names for b in names if a != b]
