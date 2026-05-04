@@ -50,6 +50,7 @@ from cartridges.structs import read_conversations
 GRAPH_DIR = Path(__file__).parent
 TREE_PATH = GRAPH_DIR / "family_tree.json"
 VAL_PATH = GRAPH_DIR / "val_dataset.parquet"
+TRAIN_PATH = GRAPH_DIR / "train_dataset.parquet"
 MODEL_NAME = "Qwen/Qwen3-1.7B"
 RESULTS_PATH = GRAPH_DIR / "baseline_results.json"
 WANDB_NAME_FOR_WANDB = "graph_accuracy"   # default; override via --name_for_wandb
@@ -77,6 +78,61 @@ def build_icl_context(tree: FamilyTree) -> str:
         lines.append(f"{a} is {b}'s {a_label}.")
         lines.append(f"{b} is {a}'s {b_label}.")
     return "\n".join(lines)
+
+
+# ── few-shot example builder ──────────────────────────────────────────────────
+
+def build_few_shot_messages(train_path: Path, seed: int = 100) -> list[dict]:
+    """
+    One MC example per chain length (1–8) from train set, formatted as
+    prior turns in the conversation:
+        user:      MC question with options
+        assistant: <think>reasoning chain</think> correct_letter
+
+    Options generated with separate seed (100) to avoid contaminating val options.
+    """
+    convs = read_conversations(str(train_path))
+    all_rels = sorted(set(c.metadata["final_rel"] for c in convs))
+    rng = random.Random(seed)
+
+    # Pick first train example per hop length (deterministic)
+    by_hop: dict[int, object] = {}
+    for conv in convs:
+        hop = conv.metadata["chain_length"]
+        if hop not in by_hop:
+            by_hop[hop] = conv
+
+    # Pre-generate distractor pool order for all convs (same rng must advance)
+    # so we get consistent results — generate options for all, then pick by hop
+    options_by_hop: dict[int, tuple[list[str], str]] = {}
+    for conv in convs:
+        hop = conv.metadata["chain_length"]
+        correct_rel = conv.metadata["final_rel"]
+        pool = [r for r in all_rels if r != correct_rel and r != DONT_KNOW]
+        distractors = rng.sample(pool, min(3, len(pool)))
+        options = distractors + [correct_rel, DONT_KNOW]
+        rng.shuffle(options)
+        correct_letter = LETTERS[options.index(correct_rel)]
+        if hop not in options_by_hop:
+            options_by_hop[hop] = (options, correct_letter)
+
+    messages = []
+    for hop in sorted(by_hop.keys()):
+        conv = by_hop[hop]
+        a = conv.metadata["person_a"]
+        b = conv.metadata["person_b"]
+        # reasoning = assistant content from open-ended train data
+        reasoning = conv.messages[1].content   # "X is Y's Z. ... So X is Y's Z."
+        options, correct_letter = options_by_hop[hop]
+
+        question = f"What is the relationship between {a} and {b}?"
+        user_content = _build_mc_prompt(question, options)
+        assistant_content = f"<think>{reasoning}</think> {correct_letter}"
+
+        messages.append({"role": "user", "content": user_content})
+        messages.append({"role": "assistant", "content": assistant_content})
+
+    return messages
 
 
 # ── val item builder (mirrors GraphRelationshipMCEvalDataset.__init__) ─────────
@@ -117,6 +173,7 @@ def run_baseline(
     model: AutoModelForCausalLM,
     tokenizer: AutoTokenizer,
     system_prompt: str | None,
+    few_shot_messages: list[dict] | None = None,
     batch_size: int = 1,
     max_new_tokens: int = 512,
 ) -> list[dict]:
@@ -137,6 +194,8 @@ def run_baseline(
             messages = []
             if system_prompt is not None:
                 messages.append({"role": "system", "content": system_prompt})
+            if few_shot_messages:
+                messages.extend(few_shot_messages)
             messages.append({"role": "user", "content": prompt_text})
 
             ids = tokenizer.apply_chat_template(
@@ -267,7 +326,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode", default="both",
-        choices=["zero_shot", "icl_edges", "both"],
+        choices=["zero_shot", "icl_edges", "few_shot", "both"],
     )
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--max_new_tokens", type=int, default=512)
@@ -301,14 +360,23 @@ def main():
     icl_token_count = len(tokenizer.encode(icl_context))
     print(f"  ICL context: {icl_token_count} tokens")
 
-    modes = ["zero_shot", "icl_edges"] if args.mode == "both" else [args.mode]
+    # Few-shot messages (one example per hop from train set)
+    few_shot_msgs = build_few_shot_messages(TRAIN_PATH)
+    few_shot_token_count = len(tokenizer.apply_chat_template(
+        few_shot_msgs, tokenize=True, add_generation_prompt=False
+    ))
+    print(f"  Few-shot examples: {len(few_shot_msgs)//2} hops, {few_shot_token_count} tokens")
+
+    modes = ["zero_shot", "icl_edges", "few_shot"] if args.mode == "both" else [args.mode]
     all_results: dict[str, dict] = {}
 
     for mode in modes:
         sys_prompt = None if mode == "zero_shot" else icl_context
+        fewshot = few_shot_msgs if mode == "few_shot" else None
         print(f"\nRunning baseline: {mode}")
         results = run_baseline(
             items, model, tokenizer, sys_prompt,
+            few_shot_messages=fewshot,
             batch_size=args.batch_size,
             max_new_tokens=args.max_new_tokens,
         )
@@ -316,10 +384,15 @@ def main():
         all_results[mode] = {"accuracy": acc, "samples": results}
 
         if not args.no_wandb:
+            ctx_tokens = (
+                icl_token_count if mode == "icl_edges"
+                else few_shot_token_count if mode == "few_shot"
+                else None
+            )
             avg = log_to_wandb(
                 mode, results,
                 name_for_wandb=args.name_for_wandb,
-                icl_token_count=icl_token_count if mode == "icl_edges" else None,
+                icl_token_count=ctx_tokens,
             )
             print(f"  W&B logged: {avg}")
 

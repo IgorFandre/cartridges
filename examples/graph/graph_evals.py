@@ -15,6 +15,7 @@ Format (user message):
 
 Score: accuracy broken down by chain length (hop_1_score, hop_2_score, ...).
 """
+import json
 import random
 import re
 from typing import Dict, List, Optional, Tuple
@@ -62,6 +63,7 @@ class GraphRelationshipMCEvalDataset(GenerateEvalDataset):
         val_path: str           # path to val_dataset.parquet
         seed: int = 42
         include_system_prompt: bool = False  # if True, prepend system_prompt from parquet
+        use_fixed_options: bool = False      # if True, load options from metadata (MC-format parquets)
 
     def __init__(
         self,
@@ -84,10 +86,15 @@ class GraphRelationshipMCEvalDataset(GenerateEvalDataset):
         self._items: list[dict] = []
         for conv in self.data:
             correct_rel = conv.metadata["final_rel"]
-            distractors = self._sample_distractors(correct_rel, n=3)
-            options = distractors + [correct_rel, DONT_KNOW]
-            self.rng.shuffle(options)
-            correct_letter = LETTERS[options.index(correct_rel)]
+            if config.use_fixed_options and "options_json" in conv.metadata:
+                # Load pre-computed options from MC-format parquet
+                options = json.loads(conv.metadata["options_json"])
+                correct_letter = conv.metadata["correct_letter"]
+            else:
+                distractors = self._sample_distractors(correct_rel, n=3)
+                options = distractors + [correct_rel, DONT_KNOW]
+                self.rng.shuffle(options)
+                correct_letter = LETTERS[options.index(correct_rel)]
             self._items.append({
                 "options": options,
                 "correct_letter": correct_letter,
