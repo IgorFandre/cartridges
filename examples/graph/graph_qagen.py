@@ -150,10 +150,14 @@ def generate_qa_pairs(tree: FamilyTree, lookup: dict) -> list[dict]:
 
 
 def qa_to_conversation(q: dict) -> Conversation:
-    return Conversation(messages=[
-        Conversation.Message(role="user",      content=q["question"], token_ids=None, top_logprobs=None),
-        Conversation.Message(role="assistant", content=q["answer"],   token_ids=None, top_logprobs=None),
-    ])
+    return Conversation(
+        system_prompt="",
+        metadata={"category": q["category"], "rel": q["rel"], "person": q["person"]},
+        messages=[
+            Conversation.Message(role="user",      content=q["question"], token_ids=None, top_logprobs=None),
+            Conversation.Message(role="assistant", content=q["answer"],   token_ids=None, top_logprobs=None),
+        ],
+    )
 
 
 def main():
