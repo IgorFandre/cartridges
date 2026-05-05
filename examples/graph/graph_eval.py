@@ -25,6 +25,8 @@ OUTPUT_DIR = Path(__file__).parent
 CORPUS_PATH = OUTPUT_DIR / "family_tree_corpus.txt"
 TEST_PARQUET = OUTPUT_DIR / "test.parquet"
 TEST_META    = OUTPUT_DIR / "test_meta.json"
+TEST_PARQUET_COT = OUTPUT_DIR / "test_cot.parquet"
+TEST_META_COT    = OUTPUT_DIR / "test_meta_cot.json"
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
@@ -36,6 +38,21 @@ def score_answer(pred: str, expected: str) -> bool:
     pred     = pred.strip().rstrip(".").strip().lower()
     expected = expected.strip().rstrip(".").strip().lower()
     return pred == expected
+
+
+def extract_final_answer(text: str) -> str:
+    """Extract 'X' from CoT text ending with 'Answer: X.'"""
+    import re
+    m = re.search(r'[Aa]nswer:\s*(.+?)\.?\s*$', text.strip(), re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    return text.strip()
+
+
+def score_cot_answer(pred: str, expected: str) -> bool:
+    pred_ans = extract_final_answer(pred)
+    exp_ans  = extract_final_answer(expected)
+    return score_answer(pred_ans, exp_ans)
 
 
 def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, device: str):
@@ -91,9 +108,10 @@ def run_cartridge_eval(args) -> List[dict]:
     cache: TrainableCache = TrainableCache.from_pretrained(args.checkpoint, device=device)
     cache = cache.to(device)
 
-    convos = read_conversations(str(TEST_PARQUET))
-    meta   = json.loads(TEST_META.read_text())
-    assert len(convos) == len(meta), "test.parquet and test_meta.json out of sync"
+    convos = read_conversations(str(args._test_parquet))
+    meta   = json.loads(Path(args._test_meta).read_text())
+    assert len(convos) == len(meta), "parquet and meta out of sync"
+    scorer = args._scorer
 
     results = []
     for i in tqdm(range(0, len(convos), args.batch_size), desc="cartridge eval"):
@@ -129,7 +147,7 @@ def run_cartridge_eval(args) -> List[dict]:
                 "question":  m["question"],
                 "expected":  exp,
                 "predicted": pred_text,
-                "correct":   score_answer(pred_text, exp),
+                "correct":   scorer(pred_text, exp),
             })
 
     return results
@@ -154,9 +172,10 @@ def run_icl_eval(args) -> List[dict]:
     ).to(device)
     model.eval()
 
-    convos = read_conversations(str(TEST_PARQUET))
-    meta   = json.loads(TEST_META.read_text())
-    assert len(convos) == len(meta), "test.parquet and test_meta.json out of sync"
+    convos = read_conversations(str(args._test_parquet))
+    meta   = json.loads(Path(args._test_meta).read_text())
+    assert len(convos) == len(meta), "parquet and meta out of sync"
+    scorer = args._scorer
 
     kwargs = {}
     if model_name in MODELS_WITH_THINKING:
@@ -198,7 +217,7 @@ def run_icl_eval(args) -> List[dict]:
             "question":  m["question"],
             "expected":  expected,
             "predicted": pred_text,
-            "correct":   score_answer(pred_text, expected),
+            "correct":   scorer(pred_text, expected),
         })
 
     return results
@@ -234,7 +253,20 @@ def main():
     parser.add_argument("--batch-size",     type=int, default=8)
     parser.add_argument("--device",         default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output",         default=None, help="Save per-question results JSON")
+    parser.add_argument("--cot",            action="store_true", help="Use CoT test set (test_cot.parquet)")
     args = parser.parse_args()
+
+    # Route to correct parquet/meta/scorer
+    if args.cot:
+        args._test_parquet = TEST_PARQUET_COT
+        args._test_meta    = TEST_META_COT
+        args._scorer       = score_cot_answer
+        if args.max_new_tokens == 64:
+            args.max_new_tokens = 256
+    else:
+        args._test_parquet = TEST_PARQUET
+        args._test_meta    = TEST_META
+        args._scorer       = score_answer
 
     if args.mode == "cartridge":
         assert args.checkpoint, "--checkpoint required for cartridge mode"
