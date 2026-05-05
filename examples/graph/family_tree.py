@@ -61,30 +61,6 @@ COMPOSITION: dict[tuple[str, str], str] = {
     ("daughter", "father"): "sister",
     ("daughter", "mother"): "sister",
 
-    # ── great-grandparent ────────────────────────────────────────────────────
-    ("grandfather", "father"): "great-grandfather",
-    ("grandfather", "mother"): "great-grandfather",
-    ("grandmother", "father"): "great-grandmother",
-    ("grandmother", "mother"): "great-grandmother",
-
-    # ── great-grandchild ─────────────────────────────────────────────────────
-    ("grandson", "son"): "great-grandson",
-    ("grandson", "daughter"): "great-grandson",
-    ("granddaughter", "son"): "great-granddaughter",
-    ("granddaughter", "daughter"): "great-granddaughter",
-
-    # ── great-aunt / great-uncle (grandparent's sibling) ─────────────────────
-    ("aunt", "father"): "great-aunt",
-    ("aunt", "mother"): "great-aunt",
-    ("uncle", "father"): "great-uncle",
-    ("uncle", "mother"): "great-uncle",
-
-    # ── great-nephew / great-niece (grandchild of sibling) ───────────────────
-    ("grandson", "brother"): "great-nephew",
-    ("grandson", "sister"): "great-nephew",
-    ("granddaughter", "brother"): "great-niece",
-    ("granddaughter", "sister"): "great-niece",
-
     # ── grandparent + sibling = grandparent (shared grandchildren) ───────────
     ("grandfather", "brother"): "grandfather",
     ("grandfather", "sister"): "grandfather",
@@ -101,105 +77,9 @@ COMPOSITION: dict[tuple[str, str], str] = {
     ("aunt", "son"): "cousin",
     ("aunt", "daughter"): "cousin",
 
-    # ── in-law: spouse + parent / child ──────────────────────────────────────
-    ("husband", "daughter"): "son-in-law",
-    ("husband", "son"): "son-in-law",
-    ("wife", "daughter"): "daughter-in-law",
-    ("wife", "son"): "daughter-in-law",
-    ("father", "wife"): "father-in-law",
-    ("father", "husband"): "father-in-law",
-    ("mother", "wife"): "mother-in-law",
-    ("mother", "husband"): "mother-in-law",
-    ("son", "wife"): "son-in-law",
-    ("son", "husband"): "son-in-law",
-    ("daughter", "wife"): "daughter-in-law",
-    ("daughter", "husband"): "daughter-in-law",
-
-    # ── in-law: spouse + sibling ─────────────────────────────────────────────
-    ("husband", "brother"): "brother-in-law",
-    ("husband", "sister"): "brother-in-law",
-    ("wife", "brother"): "sister-in-law",
-    ("wife", "sister"): "sister-in-law",
-    ("brother", "wife"): "brother-in-law",
-    ("brother", "husband"): "brother-in-law",
-    ("sister", "wife"): "sister-in-law",
-    ("sister", "husband"): "sister-in-law",
-
-    # ── extended in-law ───────────────────────────────────────────────────────
-    ("grandfather", "wife"): "grandfather-in-law",
-    ("grandfather", "husband"): "grandfather-in-law",
-    ("grandmother", "wife"): "grandmother-in-law",
-    ("grandmother", "husband"): "grandmother-in-law",
-    ("aunt", "wife"): "aunt-in-law",
-    ("aunt", "husband"): "aunt-in-law",
-    ("uncle", "wife"): "uncle-in-law",
-    ("uncle", "husband"): "uncle-in-law",
-    ("nephew", "wife"): "nephew-in-law",
-    ("nephew", "husband"): "nephew-in-law",
-    ("niece", "wife"): "niece-in-law",
-    ("niece", "husband"): "niece-in-law",
-
-    # ── grandson/granddaughter-in-law ─────────────────────────────────────────
-    ("son-in-law", "son"): "grandson-in-law",
-    ("son-in-law", "daughter"): "grandson-in-law",
-    ("son-in-law", "brother"): "brother-in-law",
-    ("son-in-law", "sister"): "brother-in-law",
-    ("daughter-in-law", "son"): "granddaughter-in-law",
-    ("daughter-in-law", "daughter"): "granddaughter-in-law",
-    ("daughter-in-law", "brother"): "sister-in-law",
-    ("daughter-in-law", "sister"): "sister-in-law",
-
-    # ── sibling-in-law + parent ────────────────────────────────────────────────
-    ("brother-in-law", "father"): "father-in-law",
-    ("brother-in-law", "mother"): "mother-in-law",
-    ("brother-in-law", "husband"): "brother-in-law",
-    ("brother-in-law", "wife"): "brother-in-law",
-    ("sister-in-law", "father"): "father-in-law",
-    ("sister-in-law", "mother"): "mother-in-law",
-    ("sister-in-law", "husband"): "sister-in-law",
-    ("sister-in-law", "wife"): "sister-in-law",
-
     # ── cousin + parent/spouse → cousin-once-removed ──────────────────────────
     ("cousin", "father"): "cousin",
     ("cousin", "mother"): "cousin",
-    ("cousin", "wife"): "cousin-in-law",
-    ("cousin", "husband"): "cousin-in-law",
-
-    # ── great-niece/nephew → parent = cousin (once removed) ──────────────────
-    ("great-niece", "father"): "cousin",
-    ("great-niece", "mother"): "cousin",
-    ("great-niece", "wife"): "cousin-in-law",
-    ("great-niece", "husband"): "cousin-in-law",
-    ("great-nephew", "father"): "cousin",
-    ("great-nephew", "mother"): "cousin",
-    ("great-nephew", "wife"): "cousin-in-law",
-    ("great-nephew", "husband"): "cousin-in-law",
-
-    # ── great-grandchild + sibling = great-grandchild ─────────────────────────
-    ("great-grandson", "brother"): "great-grandson",
-    ("great-grandson", "sister"): "great-grandson",
-    ("great-granddaughter", "brother"): "great-granddaughter",
-    ("great-granddaughter", "sister"): "great-granddaughter",
-    ("great-grandson", "son"): "great-great-grandson",
-    ("great-granddaughter", "son"): "great-great-granddaughter",
-
-    # ── great-grandparent extensions ─────────────────────────────────────────
-    ("great-grandfather", "father"): "great-great-grandfather",
-    ("great-grandfather", "mother"): "great-great-grandfather",
-    ("great-grandmother", "father"): "great-great-grandmother",
-    ("great-grandmother", "mother"): "great-great-grandmother",
-    ("great-grandfather", "wife"): "great-grandfather-in-law",
-    ("great-grandfather", "husband"): "great-grandfather-in-law",
-    ("great-grandmother", "wife"): "great-grandmother-in-law",
-    ("great-grandmother", "husband"): "great-grandmother-in-law",
-
-    # ── great-aunt/uncle extensions ───────────────────────────────────────────
-    ("great-aunt", "father"): "great-aunt",
-    ("great-aunt", "mother"): "great-aunt",
-    ("great-aunt", "wife"): "great-aunt-in-law",
-    ("great-aunt", "husband"): "great-aunt-in-law",
-    ("great-uncle", "wife"): "great-uncle-in-law",
-    ("great-uncle", "husband"): "great-uncle-in-law",
 }
 
 # Gendered relationship labels
