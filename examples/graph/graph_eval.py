@@ -158,8 +158,9 @@ def _find_sys_prefix_len(tokenizer, system_prompt: str, chat_template, kwargs: d
     Find token count of the system prompt prefix (before user content starts).
     Uses a sentinel string to locate the exact split point.
     """
-    SENTINEL = "\x00\x00\x00"
+    SENTINEL = "KINSHIP_EVAL_SENTINEL_XYZ_99999"
     sentinel_ids = tokenizer.encode(SENTINEL, add_special_tokens=False)
+    assert len(sentinel_ids) > 0, "Sentinel tokenized to empty — pick a different string"
 
     full_ids = tokenizer.apply_chat_template(
         [{"role": "system", "content": system_prompt}, {"role": "user", "content": SENTINEL}],
@@ -173,6 +174,7 @@ def _find_sys_prefix_len(tokenizer, system_prompt: str, chat_template, kwargs: d
     n = len(sentinel_ids)
     for j in range(len(full_ids) - n + 1):
         if full_ids[j:j + n] == sentinel_ids:
+            assert j > 0, f"Sentinel found at position 0 — system prefix is empty"
             return j
     raise ValueError("Could not locate sentinel in tokenized template output")
 
