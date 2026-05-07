@@ -134,7 +134,7 @@ def run_cartridge_eval(args) -> List[dict]:
                 position_ids=position_ids,
                 cache=cache,
                 max_new_tokens=args.max_new_tokens,
-                temperature=0.0,
+                temperature=args.temperature,
                 show_progress=False,
             )
 
@@ -289,6 +289,14 @@ def print_results(results: List[dict], mode: str):
         print(f"  {rel:20s} {nc:4d}/{len(rel_r)} = {nc/len(rel_r):.1%}")
 
 
+def print_stability(all_results: List[List[dict]], mode: str):
+    import numpy as np
+    accs = [sum(r["correct"] for r in run) / len(run) for run in all_results]
+    print(f"\n=== {mode.upper()} STABILITY ({len(all_results)} runs) ===")
+    print(f"Accuracy per run: {[f'{a:.1%}' for a in accs]}")
+    print(f"Mean: {np.mean(accs):.1%}  Std: {np.std(accs):.1%}  Min: {min(accs):.1%}  Max: {max(accs):.1%}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode",           required=True, choices=["cartridge", "icl"])
@@ -299,6 +307,8 @@ def main():
     parser.add_argument("--device",         default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output",         default=None, help="Save per-question results JSON")
     parser.add_argument("--cot",            action="store_true", help="Use CoT test set (test_cot.parquet)")
+    parser.add_argument("--temperature",    type=float, default=0.0)
+    parser.add_argument("--n-runs",         type=int,   default=1, help="Repeat eval N times (stability check)")
     args = parser.parse_args()
 
     # Route to correct parquet/meta/scorer
@@ -313,16 +323,24 @@ def main():
         args._test_meta    = TEST_META
         args._scorer       = score_answer
 
+    run_fn = run_cartridge_eval if args.mode == "cartridge" else run_icl_eval
     if args.mode == "cartridge":
         assert args.checkpoint, "--checkpoint required for cartridge mode"
-        results = run_cartridge_eval(args)
-    else:
-        results = run_icl_eval(args)
 
-    print_results(results, args.mode)
+    all_results = []
+    for run_idx in range(args.n_runs):
+        if args.n_runs > 1:
+            print(f"\n--- Run {run_idx + 1}/{args.n_runs} ---")
+        results = run_fn(args)
+        all_results.append(results)
+        print_results(results, args.mode)
+
+    if args.n_runs > 1:
+        print_stability(all_results, args.mode)
 
     if args.output:
-        Path(args.output).write_text(json.dumps(results, indent=2, ensure_ascii=False))
+        out = all_results[0] if args.n_runs == 1 else all_results
+        Path(args.output).write_text(json.dumps(out, indent=2, ensure_ascii=False))
         print(f"\nSaved → {args.output}")
 
 
