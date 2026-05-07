@@ -22,7 +22,8 @@ from transformers import AutoTokenizer
 from cartridges.structs import read_conversations
 
 OUTPUT_DIR = Path(__file__).parent
-CORPUS_PATH = OUTPUT_DIR / "family_tree_corpus.txt"
+CORPUS_PATH      = OUTPUT_DIR / "family_tree_corpus.txt"
+CORPUS_JSON_PATH = OUTPUT_DIR / "family_tree.json"
 TEST_PARQUET = OUTPUT_DIR / "test.parquet"
 TEST_META    = OUTPUT_DIR / "test_meta.json"
 TEST_PARQUET_COT = OUTPUT_DIR / "test_cot.parquet"
@@ -186,7 +187,10 @@ def run_icl_eval(args) -> List[dict]:
     model_name = MODEL_CONFIGS[args.model]
     device = args.device
 
-    corpus_text   = CORPUS_PATH.read_text()
+    if args.icl_format == "json":
+        corpus_text = CORPUS_JSON_PATH.read_text()
+    else:
+        corpus_text = CORPUS_PATH.read_text()
     system_prompt = (
         "Use the following family tree to answer questions.\n\n"
         + corpus_text
@@ -309,6 +313,7 @@ def main():
     parser.add_argument("--cot",            action="store_true", help="Use CoT test set (test_cot.parquet)")
     parser.add_argument("--temperature",    type=float, default=0.0)
     parser.add_argument("--n-runs",         type=int,   default=1, help="Repeat eval N times (stability check)")
+    parser.add_argument("--icl-format",     default="text", choices=["text", "json"], help="ICL context format")
     args = parser.parse_args()
 
     # Route to correct parquet/meta/scorer
