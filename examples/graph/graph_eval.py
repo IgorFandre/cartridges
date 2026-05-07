@@ -153,6 +153,30 @@ def run_cartridge_eval(args) -> List[dict]:
     return results
 
 
+def _find_sys_prefix_len(tokenizer, system_prompt: str, chat_template, kwargs: dict) -> int:
+    """
+    Find token count of the system prompt prefix (before user content starts).
+    Uses a sentinel string to locate the exact split point.
+    """
+    SENTINEL = "\x00\x00\x00"
+    sentinel_ids = tokenizer.encode(SENTINEL, add_special_tokens=False)
+
+    full_ids = tokenizer.apply_chat_template(
+        [{"role": "system", "content": system_prompt}, {"role": "user", "content": SENTINEL}],
+        add_generation_prompt=False,
+        return_tensors=None,
+        chat_template=chat_template,
+        **kwargs,
+    )
+
+    # Find first occurrence of sentinel token sequence
+    n = len(sentinel_ids)
+    for j in range(len(full_ids) - n + 1):
+        if full_ids[j:j + n] == sentinel_ids:
+            return j
+    raise ValueError("Could not locate sentinel in tokenized template output")
+
+
 def run_icl_eval(args) -> List[dict]:
     from transformers import AutoModelForCausalLM
     from cartridges.initialization.tokenization_utils import MODEL_TO_CHAT_TEMPLATE, MODELS_WITH_THINKING
@@ -181,26 +205,46 @@ def run_icl_eval(args) -> List[dict]:
     if model_name in MODELS_WITH_THINKING:
         kwargs["enable_thinking"] = False
 
+    chat_template = MODEL_TO_CHAT_TEMPLATE.get(model_name)
+
+    # Cache system prompt KV once — O(1) prefill instead of O(N)
+    sys_prefix_len = _find_sys_prefix_len(tokenizer, system_prompt, chat_template, kwargs)
+    sys_input_ids  = tokenizer.apply_chat_template(
+        [{"role": "system", "content": system_prompt}, {"role": "user", "content": ""}],
+        add_generation_prompt=False,
+        return_tensors="pt",
+        chat_template=chat_template,
+        **kwargs,
+    )[:, :sys_prefix_len].to(device)
+
+    with torch.no_grad():
+        sys_past_kv = model(sys_input_ids, use_cache=True).past_key_values
+    print(f"System prefix cached: {sys_prefix_len} tokens")
+
     results = []
     for i in tqdm(range(len(convos)), desc="ICL eval"):
         question = convos[i].messages[0].content
         expected = convos[i].messages[1].content
         m        = meta[i]
 
-        input_ids = tokenizer.apply_chat_template(
+        full_ids = tokenizer.apply_chat_template(
             [
                 {"role": "system", "content": system_prompt},
                 {"role": "user",   "content": question},
             ],
             add_generation_prompt=True,
             return_tensors="pt",
-            chat_template=MODEL_TO_CHAT_TEMPLATE.get(model_name),
+            chat_template=chat_template,
             **kwargs,
         ).to(device)
 
+        # Only feed question tokens — system KV already in sys_past_kv
+        question_ids = full_ids[:, sys_prefix_len:]
+
         with torch.no_grad():
             output_ids = model.generate(
-                input_ids=input_ids,
+                question_ids,
+                past_key_values=sys_past_kv,
                 max_new_tokens=args.max_new_tokens,
                 do_sample=False,
                 temperature=None,
@@ -208,7 +252,7 @@ def run_icl_eval(args) -> List[dict]:
             )
 
         pred_text = tokenizer.decode(
-            output_ids[0][input_ids.shape[1]:], skip_special_tokens=True
+            output_ids[0][question_ids.shape[1]:], skip_special_tokens=True
         )
         results.append({
             "category":  m["category"],
