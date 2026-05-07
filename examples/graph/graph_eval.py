@@ -240,12 +240,9 @@ def run_icl_eval(args) -> List[dict]:
             **kwargs,
         ).to(device)
 
-        # Only feed question tokens — system KV already in sys_past_kv
-        question_ids = full_ids[:, sys_prefix_len:]
-
         with torch.no_grad():
             output_ids = model.generate(
-                question_ids,
+                full_ids,
                 past_key_values=sys_past_kv,
                 max_new_tokens=args.max_new_tokens,
                 do_sample=False,
@@ -254,7 +251,7 @@ def run_icl_eval(args) -> List[dict]:
             )
 
         pred_text = tokenizer.decode(
-            output_ids[0][question_ids.shape[1]:], skip_special_tokens=True
+            output_ids[0][full_ids.shape[1]:], skip_special_tokens=True
         )
         results.append({
             "category":  m["category"],
