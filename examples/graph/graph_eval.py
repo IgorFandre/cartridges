@@ -223,6 +223,8 @@ def run_icl_eval(args) -> List[dict]:
         sys_past_kv = model(sys_input_ids, use_cache=True).past_key_values
     print(f"System prefix cached: {sys_prefix_len} tokens")
 
+    import copy
+
     results = []
     for i in tqdm(range(len(convos)), desc="ICL eval"):
         question = convos[i].messages[0].content
@@ -243,7 +245,7 @@ def run_icl_eval(args) -> List[dict]:
         with torch.no_grad():
             output_ids = model.generate(
                 full_ids,
-                past_key_values=sys_past_kv,
+                past_key_values=copy.deepcopy(sys_past_kv),
                 max_new_tokens=args.max_new_tokens,
                 do_sample=False,
                 temperature=None,
