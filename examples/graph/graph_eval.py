@@ -61,7 +61,7 @@ def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, dev
     from cartridges.initialization.tokenization_utils import MODEL_TO_CHAT_TEMPLATE, MODELS_WITH_THINKING
 
     kwargs = {}
-    if tokenizer.name_or_path in MODELS_WITH_THINKING:
+    if tokenizer.name_or_path.lower() in {m.lower() for m in MODELS_WITH_THINKING}:
         kwargs["enable_thinking"] = False
 
     input_ids_list = []
@@ -208,7 +208,7 @@ def run_icl_eval(args) -> List[dict]:
     scorer = args._scorer
 
     kwargs = {}
-    if model_name in MODELS_WITH_THINKING:
+    if model_name.lower() in {m.lower() for m in MODELS_WITH_THINKING}:
         kwargs["enable_thinking"] = False
 
     chat_template = MODEL_TO_CHAT_TEMPLATE.get(model_name)
@@ -245,6 +245,14 @@ def run_icl_eval(args) -> List[dict]:
             chat_template=chat_template,
             **kwargs,
         ).to(device)
+
+        # Force no-thinking: append empty <think></think> block so model skips reasoning
+        if kwargs.get("enable_thinking") is False:
+            no_think_ids = torch.tensor(
+                [tokenizer.encode("<think>\n</think>\n", add_special_tokens=False)],
+                device=device,
+            )
+            full_ids = torch.cat([full_ids, no_think_ids], dim=1)
 
         with torch.no_grad():
             output_ids = model.generate(
