@@ -194,6 +194,7 @@ def run_icl_eval(args) -> List[dict]:
     system_prompt = (
         "Use the following family tree to answer questions.\n\n"
         + corpus_text
+        + "\n\nAnswer concisely. For name questions output only the name(s) comma-separated followed by a period (e.g. 'Alice, Bob.'). For counting questions output only the number followed by a period (e.g. '3.'). No explanation."
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
