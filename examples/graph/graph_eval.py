@@ -259,6 +259,10 @@ def run_icl_eval(args) -> List[dict]:
         pred_text = tokenizer.decode(
             output_ids[0][full_ids.shape[1]:], skip_special_tokens=True
         )
+        if i < 3:
+            print(f"\n[DEBUG Q{i}] {convos[i].messages[0].content}")
+            print(f"[DEBUG expected] {expected!r}")
+            print(f"[DEBUG predicted] {pred_text!r}")
         results.append({
             "category":  m["category"],
             "rel":       m["rel"],
