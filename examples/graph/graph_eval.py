@@ -191,11 +191,18 @@ def run_icl_eval(args) -> List[dict]:
         corpus_text = CORPUS_JSON_PATH.read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
-    system_prompt = (
-        "Use the following family tree to answer questions.\n\n"
-        + corpus_text
-        + "\n\nAnswer concisely. For name questions output only the name(s) comma-separated followed by a period (e.g. 'Alice, Bob.'). For counting questions output only the number followed by a period (e.g. '3.'). No explanation."
-    )
+    if args.cot:
+        system_prompt = (
+            "Use the following family tree to answer questions.\n\n"
+            + corpus_text
+            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated or a number. Example: 'X is Y's father. Y is Z's father. So X is Z's grandfather. Answer: X.'"
+        )
+    else:
+        system_prompt = (
+            "Use the following family tree to answer questions.\n\n"
+            + corpus_text
+            + "\n\nAnswer concisely. For name questions output only the name(s) comma-separated followed by a period (e.g. 'Alice, Bob.'). For counting questions output only the number followed by a period (e.g. '3.'). No explanation."
+        )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
