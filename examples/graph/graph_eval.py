@@ -24,10 +24,12 @@ from cartridges.structs import read_conversations
 OUTPUT_DIR = Path(__file__).parent
 CORPUS_PATH      = OUTPUT_DIR / "family_tree_corpus.txt"
 CORPUS_JSON_PATH = OUTPUT_DIR / "family_tree.json"
-TEST_PARQUET = OUTPUT_DIR / "test.parquet"
-TEST_META    = OUTPUT_DIR / "test_meta.json"
+TEST_PARQUET     = OUTPUT_DIR / "test.parquet"
+TEST_META        = OUTPUT_DIR / "test_meta.json"
 TEST_PARQUET_COT = OUTPUT_DIR / "test_cot.parquet"
 TEST_META_COT    = OUTPUT_DIR / "test_meta_cot.json"
+TRAIN_PARQUET    = OUTPUT_DIR / "train.parquet"
+TRAIN_META       = OUTPUT_DIR / "train_meta.json"
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
@@ -60,9 +62,15 @@ def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, dev
     """Build batched input tensors for flex_generate (packed sequences)."""
     from cartridges.initialization.tokenization_utils import MODEL_TO_CHAT_TEMPLATE, MODELS_WITH_THINKING
 
+    is_thinking_model = tokenizer.name_or_path.lower() in {m.lower() for m in MODELS_WITH_THINKING}
     kwargs = {}
-    if tokenizer.name_or_path.lower() in {m.lower() for m in MODELS_WITH_THINKING}:
+    if is_thinking_model:
         kwargs["enable_thinking"] = False
+
+    no_think_ids = (
+        tokenizer.encode("<think>\n</think>\n", add_special_tokens=False)
+        if is_thinking_model else []
+    )
 
     input_ids_list = []
     for q in questions:
@@ -78,6 +86,8 @@ def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, dev
             chat_template=MODEL_TO_CHAT_TEMPLATE.get(tokenizer.name_or_path),
             **kwargs,
         )
+        if no_think_ids:
+            ids = torch.cat([ids, torch.tensor([no_think_ids])], dim=1)
         input_ids_list.append(ids)
 
     input_ids   = torch.cat([ids[0] for ids in input_ids_list]).to(device)
@@ -191,17 +201,35 @@ def run_icl_eval(args) -> List[dict]:
         corpus_text = CORPUS_JSON_PATH.read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
+    few_shot_block = ""
+    if args.n_shot > 0 and TRAIN_PARQUET.exists():
+        import random
+        train_convos = read_conversations(str(TRAIN_PARQUET))
+        k = min(args.n_shot, len(train_convos))
+        samples = random.sample(train_convos, k)
+        lines = []
+        for s in samples:
+            q = s.messages[0].content.strip()
+            a = s.messages[1].content.strip()
+            if args.cot:
+                lines.append(f"Q: {q}\nA: {a}")
+            else:
+                lines.append(f"Q: {q}\nA: {a}")
+        few_shot_block = "\n\nExamples:\n" + "\n\n".join(lines) + "\n\nNow answer:"
+
     if args.cot:
         system_prompt = (
             "Use the following family tree to answer questions.\n\n"
             + corpus_text
-            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated or a number. Example: 'X is Y's father. Y is Z's father. So X is Z's grandfather. Answer: X.'"
+            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated or a number."
+            + few_shot_block
         )
     else:
         system_prompt = (
             "Use the following family tree to answer questions.\n\n"
             + corpus_text
             + "\n\nAnswer concisely. For name questions output only the name(s) comma-separated followed by a period (e.g. 'Alice, Bob.'). For counting questions output only the number followed by a period (e.g. '3.'). No explanation."
+            + few_shot_block
         )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -262,13 +290,14 @@ def run_icl_eval(args) -> List[dict]:
             )
             full_ids = torch.cat([full_ids, no_think_ids], dim=1)
 
+        do_sample = args.temperature > 0
         with torch.no_grad():
             output_ids = model.generate(
                 full_ids,
                 past_key_values=copy.deepcopy(sys_past_kv),
                 max_new_tokens=args.max_new_tokens,
-                do_sample=False,
-                temperature=None,
+                do_sample=do_sample,
+                temperature=args.temperature if do_sample else None,
                 top_p=None,
             )
 
@@ -334,6 +363,7 @@ def main():
     parser.add_argument("--temperature",    type=float, default=0.0)
     parser.add_argument("--n-runs",         type=int,   default=1, help="Repeat eval N times (stability check)")
     parser.add_argument("--icl-format",     default="text", choices=["text", "json"], help="ICL context format")
+    parser.add_argument("--n-shot",         type=int,   default=0, help="Few-shot examples from train.parquet in ICL system prompt")
     args = parser.parse_args()
 
     # Route to correct parquet/meta/scorer
