@@ -30,6 +30,8 @@ TEST_PARQUET_COT = OUTPUT_DIR / "test_cot.parquet"
 TEST_META_COT    = OUTPUT_DIR / "test_meta_cot.json"
 TRAIN_PARQUET    = OUTPUT_DIR / "train.parquet"
 TRAIN_META       = OUTPUT_DIR / "train_meta.json"
+TRAIN_PARQUET_COT = OUTPUT_DIR / "train_cot.parquet"
+TRAIN_META_COT    = OUTPUT_DIR / "train_meta_cot.json"
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
@@ -219,11 +221,14 @@ def run_icl_eval(args) -> List[dict]:
 
     few_shot_block = ""
     covered_shapes: set[str] = set()
-    if args.n_shot > 0 and TRAIN_PARQUET.exists() and TRAIN_META.exists():
+    train_pq   = TRAIN_PARQUET_COT if args.cot else TRAIN_PARQUET
+    train_meta_path = TRAIN_META_COT if args.cot else TRAIN_META
+    if args.n_shot > 0 and train_pq.exists() and train_meta_path.exists():
         import random
         rng = random.Random(args.n_shot_seed)
-        train_convos = read_conversations(str(TRAIN_PARQUET))
-        train_meta   = json.loads(TRAIN_META.read_text())
+        train_convos = read_conversations(str(train_pq))
+        train_meta   = json.loads(train_meta_path.read_text())
+        print(f"Few-shot source: {train_pq.name}")
 
         # Group indices by rel so we pick at most one per relation type
         by_rel: dict[str, list[int]] = {}
