@@ -248,7 +248,7 @@ def run_icl_eval(args) -> List[dict]:
             lines.append(f"Q: {q}\nA: {a}")
             covered_shapes.add(shape_of(train_meta[idx]))
         few_shot_block = "\n\nExamples:\n" + "\n\n".join(lines) + "\n\nNow answer:"
-        print(f"Few-shot: {len(selected)} examples, covered shapes: {sorted(covered_shapes)}")
+        print(f"Few-shot: {len(selected)} examples, seed={args.n_shot_seed}, indices={selected}, covered shapes: {sorted(covered_shapes)}")
 
     # Format instructions: only for shapes NOT covered by examples (or all if no examples)
     if args.n_shot > 0:
