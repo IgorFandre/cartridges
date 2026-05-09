@@ -201,21 +201,56 @@ def run_icl_eval(args) -> List[dict]:
         corpus_text = CORPUS_JSON_PATH.read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
+    SINGLE_NAME_RELS = {"father", "mother", "husband", "wife", "grandfather", "grandmother"}
+
+    def shape_of(m: dict) -> str:
+        if m["category"] == 3:
+            return "counting"
+        if m["rel"] in SINGLE_NAME_RELS:
+            return "single_name"
+        return "multi_name"
+
+    SHAPE_HINTS = {
+        "single_name": "For single-name questions output only the name followed by a period (e.g. 'Alice.').",
+        "multi_name":  "For multi-name questions output names comma-separated followed by a period (e.g. 'Alice, Bob.').",
+        "counting":    "For counting questions output only the number followed by a period (e.g. '3.').",
+    }
+    ALL_SHAPES = ["single_name", "multi_name", "counting"]
+
     few_shot_block = ""
-    if args.n_shot > 0 and TRAIN_PARQUET.exists():
+    covered_shapes: set[str] = set()
+    if args.n_shot > 0 and TRAIN_PARQUET.exists() and TRAIN_META.exists():
         import random
+        rng = random.Random(args.n_shot_seed)
         train_convos = read_conversations(str(TRAIN_PARQUET))
-        k = min(args.n_shot, len(train_convos))
-        samples = random.sample(train_convos, k)
+        train_meta   = json.loads(TRAIN_META.read_text())
+
+        # Group indices by rel so we pick at most one per relation type
+        by_rel: dict[str, list[int]] = {}
+        for idx, m in enumerate(train_meta):
+            by_rel.setdefault(m["rel"], []).append(idx)
+
+        # Sort rel keys for determinism (set/dict iteration order safe but be explicit)
+        rel_keys = sorted(by_rel.keys())
+        one_per_rel = [rng.choice(sorted(by_rel[r])) for r in rel_keys]
+        rng.shuffle(one_per_rel)
+        selected = one_per_rel[: args.n_shot]
+
         lines = []
-        for s in samples:
-            q = s.messages[0].content.strip()
-            a = s.messages[1].content.strip()
-            if args.cot:
-                lines.append(f"Q: {q}\nA: {a}")
-            else:
-                lines.append(f"Q: {q}\nA: {a}")
+        for idx in selected:
+            q = train_convos[idx].messages[0].content.strip()
+            a = train_convos[idx].messages[1].content.strip()
+            lines.append(f"Q: {q}\nA: {a}")
+            covered_shapes.add(shape_of(train_meta[idx]))
         few_shot_block = "\n\nExamples:\n" + "\n\n".join(lines) + "\n\nNow answer:"
+        print(f"Few-shot: {len(selected)} examples, covered shapes: {sorted(covered_shapes)}")
+
+    # Format instructions: only for shapes NOT covered by examples (or all if no examples)
+    if args.n_shot > 0:
+        missing = [s for s in ALL_SHAPES if s not in covered_shapes]
+        format_instr = " ".join(SHAPE_HINTS[s] for s in missing) if missing else ""
+    else:
+        format_instr = " ".join(SHAPE_HINTS[s] for s in ALL_SHAPES)
 
     if args.cot:
         system_prompt = (
@@ -225,10 +260,14 @@ def run_icl_eval(args) -> List[dict]:
             + few_shot_block
         )
     else:
+        base = "Answer concisely."
+        if format_instr:
+            base += " " + format_instr
+        base += " No explanation."
         system_prompt = (
             "Use the following family tree to answer questions.\n\n"
             + corpus_text
-            + "\n\nAnswer concisely. For name questions output only the name(s) comma-separated followed by a period (e.g. 'Alice, Bob.'). For counting questions output only the number followed by a period (e.g. '3.'). No explanation."
+            + "\n\n" + base
             + few_shot_block
         )
 
@@ -248,6 +287,28 @@ def run_icl_eval(args) -> List[dict]:
         kwargs["enable_thinking"] = False
 
     chat_template = MODEL_TO_CHAT_TEMPLATE.get(model_name)
+
+    if args.print_prompt:
+        print("=" * 80)
+        print("SYSTEM PROMPT (raw, post-corpus tail):")
+        print("=" * 80)
+        # Skip corpus body: print only header + tail (rules + examples)
+        tail_marker = "\n\n"
+        head, _, tail = system_prompt.partition(corpus_text)
+        print(head + "[<corpus omitted: " + str(len(corpus_text)) + " chars>]" + tail)
+        print("=" * 80)
+        sample_q = convos[0].messages[0].content
+        templated = tokenizer.apply_chat_template(
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": sample_q}],
+            add_generation_prompt=True,
+            tokenize=False,
+            chat_template=chat_template,
+            **kwargs,
+        )
+        head, _, tail = templated.partition(corpus_text)
+        print("CHAT-TEMPLATED FIRST QUERY (corpus elided):")
+        print(head + "[<corpus omitted>]" + tail)
+        print("=" * 80)
 
     # Cache system prompt KV once — O(1) prefill instead of O(N)
     sys_prefix_len = _find_sys_prefix_len(tokenizer, system_prompt, chat_template, kwargs)
@@ -363,7 +424,9 @@ def main():
     parser.add_argument("--temperature",    type=float, default=0.0)
     parser.add_argument("--n-runs",         type=int,   default=1, help="Repeat eval N times (stability check)")
     parser.add_argument("--icl-format",     default="text", choices=["text", "json"], help="ICL context format")
-    parser.add_argument("--n-shot",         type=int,   default=0, help="Few-shot examples from train.parquet in ICL system prompt")
+    parser.add_argument("--n-shot",         type=int,   default=0,  help="Few-shot examples from train.parquet in ICL system prompt")
+    parser.add_argument("--n-shot-seed",    type=int,   default=42, help="RNG seed for few-shot example selection")
+    parser.add_argument("--print-prompt",   action="store_true", help="Print system prompt + first chat-templated query (corpus elided)")
     args = parser.parse_args()
 
     # Route to correct parquet/meta/scorer
