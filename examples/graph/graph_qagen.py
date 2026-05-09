@@ -165,6 +165,8 @@ def main():
     parser.add_argument("--n-people",   type=int,   default=40)
     parser.add_argument("--seed",       type=int,   default=42)
     parser.add_argument("--train-frac", type=float, default=0.8)
+    parser.add_argument("--neg-frac",   type=float, default=0.3,
+                        help="Subsample negative QA (answer 'None.' / '0.') to this fraction of positives. Set 1.0 to keep all.")
     args = parser.parse_args()
 
     # Load or generate tree
@@ -192,13 +194,32 @@ def main():
 
     # Generate QA pairs
     qa_pairs = generate_qa_pairs(tree, lookup)
-    print(f"Generated {len(qa_pairs)} QA pairs")
+    print(f"Generated {len(qa_pairs)} QA pairs (raw)")
     for cat in [1, 2, 3]:
         n = sum(1 for q in qa_pairs if q["category"] == cat)
         print(f"  Cat {cat}: {n}")
 
-    # Train / test split
     rng = random.Random(args.seed)
+
+    # Subsample negative-answer questions
+    def is_negative(q: dict) -> bool:
+        return q["answer"].strip() in ("None.", "0.")
+
+    pos_qa = [q for q in qa_pairs if not is_negative(q)]
+    neg_qa = [q for q in qa_pairs if is_negative(q)]
+    print(f"Positive: {len(pos_qa)}  Negative: {len(neg_qa)}  (neg-frac={args.neg_frac})")
+
+    if args.neg_frac < 1.0:
+        target_neg = int(len(pos_qa) * args.neg_frac)
+        target_neg = min(target_neg, len(neg_qa))
+        rng.shuffle(neg_qa)
+        neg_qa = neg_qa[:target_neg]
+        print(f"Subsampled negatives → {len(neg_qa)}")
+
+    qa_pairs = pos_qa + neg_qa
+    print(f"Final QA pairs: {len(qa_pairs)} ({len(pos_qa)} pos + {len(neg_qa)} neg)")
+
+    # Train / test split
     rng.shuffle(qa_pairs)
     n_train = int(len(qa_pairs) * args.train_frac)
     train_qa = qa_pairs[:n_train]

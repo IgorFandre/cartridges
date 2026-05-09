@@ -213,10 +213,14 @@ def run_icl_eval(args) -> List[dict]:
         return "multi_name"
 
     SHAPE_HINTS = {
-        "single_name": "For single-name questions output only the name followed by a period (e.g. 'Alice.').",
-        "multi_name":  "For multi-name questions output names comma-separated followed by a period (e.g. 'Alice, Bob.').",
-        "counting":    "For counting questions output only the number followed by a period (e.g. '3.').",
+        "single_name": "For single-name questions output only the name followed by a period (e.g. 'Alice.'). If no such person exists in the family tree, output exactly 'None.'",
+        "multi_name":  "For multi-name questions output names comma-separated followed by a period (e.g. 'Alice, Bob.'). If no such people exist, output exactly 'None.'",
+        "counting":    "For counting questions output only the number followed by a period (e.g. '3.'). If the count is zero, output exactly '0.'",
     }
+    NEGATIVE_HINT = (
+        "Important: absence is a valid answer. If the family tree does not contain the requested relation, "
+        "answer 'None.' for name questions and '0.' for counting questions. Do not guess names."
+    )
     ALL_SHAPES = ["single_name", "multi_name", "counting"]
 
     few_shot_block = ""
@@ -261,14 +265,15 @@ def run_icl_eval(args) -> List[dict]:
         system_prompt = (
             "Use the following family tree to answer questions.\n\n"
             + corpus_text
-            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated or a number."
+            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated, a number, or 'None' / '0' if the relation is absent."
+            + "\n" + NEGATIVE_HINT
             + few_shot_block
         )
     else:
         base = "Answer concisely."
         if format_instr:
             base += " " + format_instr
-        base += " No explanation."
+        base += " " + NEGATIVE_HINT + " No explanation."
         system_prompt = (
             "Use the following family tree to answer questions.\n\n"
             + corpus_text
