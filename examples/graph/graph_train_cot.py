@@ -1,7 +1,8 @@
 """
-Train a kinship cartridge on CoT QA pairs (NTP loss).
+Train a kinship cartridge on MC CoT QA pairs.
+Target = "<think>BFS reasoning</think>\\n\\n<letter>." (NTP loss).
 
-Run graph_qagen_cot.py first to generate train_cot.parquet.
+Run graph_qagen_cot.py first to generate train_cot_mc.parquet.
 
 Usage (single GPU):
     python examples/graph/graph_train_cot.py
@@ -36,9 +37,9 @@ config = TrainConfig(
     global_batch_size=32,
 
     dataset=TrainDataset.Config(
-        data_sources=[DataSource(path=str(OUTPUT_DIR / "train_cot.parquet"), type="local")],
+        data_sources=[DataSource(path=str(OUTPUT_DIR / "train_cot_mc.parquet"), type="local")],
         targets="tokens",
-        packed_seq_length=512,   # longer — CoT answers are bigger
+        packed_seq_length=512,   # longer — CoT reasoning is bigger
         packing_mode="pad",
     ),
 
@@ -47,12 +48,12 @@ config = TrainConfig(
         GenerationEvalConfig(
             dataset=GenerateEvalDataset.Config(
                 data_source=DataSource(
-                    path=str(OUTPUT_DIR / "test_cot.parquet"),
+                    path=str(OUTPUT_DIR / "test_cot_mc.parquet"),
                     type="local",
                 ),
             ),
-            name_for_wandb="kinship_cot_test",
-            generate_max_new_tokens=128,
+            name_for_wandb="kinship_cot_mc_test",
+            generate_max_new_tokens=256,
             batch_size=8,
             temperature=0.0,
         )
@@ -60,7 +61,7 @@ config = TrainConfig(
 
     save_every_n_steps=200,
     output_dir=os.environ.get("CARTRIDGES_OUTPUT_DIR", str(OUTPUT_DIR / "checkpoints")),
-    name="graph-kinship-cot",
+    name="graph-kinship-mc-cot",
 
     distributed_backend="gloo",
 )

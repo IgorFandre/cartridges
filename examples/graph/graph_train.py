@@ -1,7 +1,7 @@
 """
-Train a kinship cartridge on family tree QA pairs (NTP loss).
+Train a kinship cartridge on family tree MC QA pairs (NTP loss, letter target).
 
-Run graph_qagen.py first to generate train.parquet and family_tree_corpus.txt.
+Run graph_qagen.py first to generate train_mc.parquet and family_tree_corpus.txt.
 
 Usage (single GPU):
     python examples/graph/graph_train.py
@@ -40,8 +40,8 @@ config = TrainConfig(
     global_batch_size=32,
 
     dataset=TrainDataset.Config(
-        data_sources=[DataSource(path=str(OUTPUT_DIR / "train.parquet"), type="local")],
-        targets="tokens",        # NTP loss (cross-entropy on answer tokens)
+        data_sources=[DataSource(path=str(OUTPUT_DIR / "train_mc.parquet"), type="local")],
+        targets="tokens",        # NTP loss on MC letter answer
         packed_seq_length=256,
         packing_mode="pad",
     ),
@@ -51,12 +51,12 @@ config = TrainConfig(
         GenerationEvalConfig(
             dataset=GenerateEvalDataset.Config(
                 data_source=DataSource(
-                    path=str(OUTPUT_DIR / "test.parquet"),
+                    path=str(OUTPUT_DIR / "test_mc.parquet"),
                     type="local",
                 ),
             ),
-            name_for_wandb="kinship_test",
-            generate_max_new_tokens=64,
+            name_for_wandb="kinship_mc_test",
+            generate_max_new_tokens=8,
             batch_size=16,
             temperature=0.0,
         )
@@ -64,7 +64,7 @@ config = TrainConfig(
 
     save_every_n_steps=200,
     output_dir=os.environ.get("CARTRIDGES_OUTPUT_DIR", str(OUTPUT_DIR / "checkpoints")),
-    name="graph-kinship-ntp",
+    name="graph-kinship-mc-ntp",
 
     distributed_backend="gloo",
 )

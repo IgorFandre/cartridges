@@ -1,17 +1,26 @@
 """
-Evaluate trained cartridge or ICL baseline on kinship QA test set.
+Evaluate trained cartridge or ICL baseline on kinship MC (5-option A-E) test set.
 
-Run graph_qagen.py first to generate test.parquet and test_meta.json.
+Run graph_qagen.py and/or graph_qagen_cot.py first to generate:
+    test_mc.parquet, test_meta_mc.json          (NTP letter target)
+    test_cot_mc.parquet, test_meta_cot_mc.json  (CoT then letter)
+
+Four eval modes:
+    icl       : ICL, strict letter answer (single token)
+    icl-cot   : ICL, <think>...</think> then letter
+    cartridge     : trained cartridge, NTP letter (use --checkpoint from graph_train.py)
+    cartridge-cot : trained cartridge, CoT then letter (use --checkpoint from graph_train_cot.py)
 
 Usage:
-    # Cartridge (trained):
-    python examples/graph/graph_eval.py --mode cartridge --checkpoint /path/to/cache-last.pt
-
-    # ICL baseline (family tree text in system prompt):
     python examples/graph/graph_eval.py --mode icl
+    python examples/graph/graph_eval.py --mode icl-cot
+    python examples/graph/graph_eval.py --mode cartridge     --checkpoint /path/to/cache-last.pt
+    python examples/graph/graph_eval.py --mode cartridge-cot --checkpoint /path/to/cache-last.pt
 """
 import argparse
+import copy
 import json
+import re
 from pathlib import Path
 from typing import Dict, List
 
@@ -24,55 +33,63 @@ from cartridges.structs import read_conversations
 OUTPUT_DIR = Path(__file__).parent
 CORPUS_PATH      = OUTPUT_DIR / "family_tree_corpus.txt"
 CORPUS_JSON_PATH = OUTPUT_DIR / "family_tree.json"
-TEST_PARQUET     = OUTPUT_DIR / "test.parquet"
-TEST_META        = OUTPUT_DIR / "test_meta.json"
-TEST_PARQUET_COT = OUTPUT_DIR / "test_cot.parquet"
-TEST_META_COT    = OUTPUT_DIR / "test_meta_cot.json"
-TRAIN_PARQUET    = OUTPUT_DIR / "train.parquet"
-TRAIN_META       = OUTPUT_DIR / "train_meta.json"
-TRAIN_PARQUET_COT = OUTPUT_DIR / "train_cot.parquet"
-TRAIN_META_COT    = OUTPUT_DIR / "train_meta_cot.json"
+
+TEST_MC_PARQUET     = OUTPUT_DIR / "test_mc.parquet"
+TEST_MC_META        = OUTPUT_DIR / "test_meta_mc.json"
+TEST_COT_MC_PARQUET = OUTPUT_DIR / "test_cot_mc.parquet"
+TEST_COT_MC_META    = OUTPUT_DIR / "test_meta_cot_mc.json"
+
+TRAIN_MC_PARQUET     = OUTPUT_DIR / "train_mc.parquet"
+TRAIN_MC_META        = OUTPUT_DIR / "train_meta_mc.json"
+TRAIN_COT_MC_PARQUET = OUTPUT_DIR / "train_cot_mc.parquet"
+TRAIN_COT_MC_META    = OUTPUT_DIR / "train_meta_cot_mc.json"
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
     "qwen4b":   "Qwen/Qwen3-4b",
 }
 
-
-def score_answer(pred: str, expected: str) -> bool:
-    pred     = pred.strip().rstrip(".").strip().lower()
-    expected = expected.strip().rstrip(".").strip().lower()
-    return pred == expected
+VALID_LETTERS = ("A", "B", "C", "D", "E")
 
 
-def extract_final_answer(text: str) -> str:
-    """Extract 'X' from CoT text ending with 'Answer: X.'"""
-    import re
-    m = re.search(r'[Aa]nswer:\s*(.+?)\.?\s*$', text.strip(), re.DOTALL)
+# ── Letter extraction ────────────────────────────────────────────────────────
+def extract_letter(text: str) -> str:
+    """Pull A-E out of model output. Robust to '<think>...</think>\\n\\nB.', 'B.', 'Answer: B', etc."""
+    s = text
+    # Strip any <think>...</think> block(s)
+    s = re.sub(r"<think>.*?</think>", "", s, flags=re.DOTALL).strip()
+
+    # Direct: optional "Answer:" prefix, then letter
+    m = re.search(r"(?:answer\s*[:\-]?\s*)?\b([A-E])\b\.?", s, flags=re.IGNORECASE)
     if m:
-        return m.group(1).strip()
-    return text.strip()
+        return m.group(1).upper()
+
+    # Fallback: very first A-E char anywhere
+    m2 = re.search(r"[A-Ea-e]", s)
+    if m2:
+        return m2.group(0).upper()
+    return ""
 
 
-def score_cot_answer(pred: str, expected: str) -> bool:
-    pred_ans = extract_final_answer(pred)
-    exp_ans  = extract_final_answer(expected)
-    return score_answer(pred_ans, exp_ans)
+def score_letter(pred: str, expected_letter: str) -> bool:
+    return extract_letter(pred) == expected_letter.upper()
 
 
-def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, device: str):
-    """Build batched input tensors for flex_generate (packed sequences)."""
+# ── Input building (cartridge mode) ──────────────────────────────────────────
+def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, device: str,
+                 enable_thinking: bool):
+    """Build batched packed input tensors for flex_generate."""
     from cartridges.initialization.tokenization_utils import MODEL_TO_CHAT_TEMPLATE, MODELS_WITH_THINKING
 
     is_thinking_model = tokenizer.name_or_path.lower() in {m.lower() for m in MODELS_WITH_THINKING}
     kwargs = {}
     if is_thinking_model:
-        kwargs["enable_thinking"] = False
+        kwargs["enable_thinking"] = enable_thinking
 
-    no_think_ids = (
-        tokenizer.encode("<think>\n</think>\n", add_special_tokens=False)
-        if is_thinking_model else []
-    )
+    # Force-empty <think> block for non-CoT NTP cartridge eval
+    no_think_ids = []
+    if is_thinking_model and not enable_thinking:
+        no_think_ids = tokenizer.encode("<think>\n</think>\n", add_special_tokens=False)
 
     input_ids_list = []
     for q in questions:
@@ -104,6 +121,7 @@ def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, dev
     return input_ids, seq_ids, position_ids
 
 
+# ── Cartridge eval ───────────────────────────────────────────────────────────
 def run_cartridge_eval(args) -> List[dict]:
     from cartridges.cache import TrainableCache
     from cartridges.generation import flex_generate
@@ -124,18 +142,17 @@ def run_cartridge_eval(args) -> List[dict]:
     convos = read_conversations(str(args._test_parquet))
     meta   = json.loads(Path(args._test_meta).read_text())
     assert len(convos) == len(meta), "parquet and meta out of sync"
-    scorer = args._scorer
 
     results = []
-    for i in tqdm(range(0, len(convos), args.batch_size), desc="cartridge eval"):
+    for i in tqdm(range(0, len(convos), args.batch_size), desc=f"{args.mode} eval"):
         batch_convos = convos[i : i + args.batch_size]
         batch_meta   = meta[i : i + args.batch_size]
 
         questions = [c.messages[0].content for c in batch_convos]
-        expected  = [c.messages[1].content for c in batch_convos]
 
         input_ids, seq_ids, position_ids = build_inputs(
-            questions, tokenizer, system_prompt=None, device=device
+            questions, tokenizer, system_prompt=None, device=device,
+            enable_thinking=args._cot,
         )
 
         with torch.no_grad():
@@ -151,29 +168,28 @@ def run_cartridge_eval(args) -> List[dict]:
                 show_progress=False,
             )
 
-        for j, (exp, m) in enumerate(zip(expected, batch_meta)):
+        for j, m in enumerate(batch_meta):
             pred_text = tokenizer.decode(pred_ids[j], skip_special_tokens=True)
             results.append({
-                "category":  m["category"],
-                "rel":       m["rel"],
-                "person":    m["person"],
-                "question":  m["question"],
-                "expected":  exp,
-                "predicted": pred_text,
-                "correct":   scorer(pred_text, exp),
+                "category":        m["category"],
+                "rel":             m["rel"],
+                "person":          m["person"],
+                "question":        m.get("question_text", m.get("question", "")),
+                "options":         m["options"],
+                "correct_letter":  m["correct_letter"],
+                "predicted":       pred_text,
+                "predicted_letter": extract_letter(pred_text),
+                "correct":         score_letter(pred_text, m["correct_letter"]),
             })
 
     return results
 
 
+# ── ICL eval ─────────────────────────────────────────────────────────────────
 def _find_sys_prefix_len(tokenizer, system_prompt: str, chat_template, kwargs: dict) -> int:
-    """
-    Find token count of the system prompt prefix (before user content starts).
-    Uses a sentinel string to locate the exact split point.
-    """
     SENTINEL = "KINSHIP_EVAL_SENTINEL_XYZ_99999"
     sentinel_ids = tokenizer.encode(SENTINEL, add_special_tokens=False)
-    assert len(sentinel_ids) > 0, "Sentinel tokenized to empty — pick a different string"
+    assert len(sentinel_ids) > 0
 
     full_ids = tokenizer.apply_chat_template(
         [{"role": "system", "content": system_prompt}, {"role": "user", "content": SENTINEL}],
@@ -182,14 +198,12 @@ def _find_sys_prefix_len(tokenizer, system_prompt: str, chat_template, kwargs: d
         chat_template=chat_template,
         **kwargs,
     )
-
-    # Find first occurrence of sentinel token sequence
     n = len(sentinel_ids)
     for j in range(len(full_ids) - n + 1):
         if full_ids[j:j + n] == sentinel_ids:
-            assert j > 0, f"Sentinel found at position 0 — system prefix is empty"
+            assert j > 0
             return j
-    raise ValueError("Could not locate sentinel in tokenized template output")
+    raise ValueError("Sentinel not found")
 
 
 def run_icl_eval(args) -> List[dict]:
@@ -203,30 +217,11 @@ def run_icl_eval(args) -> List[dict]:
         corpus_text = CORPUS_JSON_PATH.read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
-    SINGLE_NAME_RELS = {"father", "mother", "husband", "wife", "grandfather", "grandmother"}
 
-    def shape_of(m: dict) -> str:
-        if m["category"] == 3:
-            return "counting"
-        if m["rel"] in SINGLE_NAME_RELS:
-            return "single_name"
-        return "multi_name"
-
-    SHAPE_HINTS = {
-        "single_name": "For single-name questions output only the name followed by a period (e.g. 'Alice.'). If no such person exists in the family tree, output exactly 'None.'",
-        "multi_name":  "For multi-name questions output names comma-separated followed by a period (e.g. 'Alice, Bob.'). If no such people exist, output exactly 'None.'",
-        "counting":    "For counting questions output only the number followed by a period (e.g. '3.'). If the count is zero, output exactly '0.'",
-    }
-    NEGATIVE_HINT = (
-        "Important: absence is a valid answer. If the family tree does not contain the requested relation, "
-        "answer 'None.' for name questions and '0.' for counting questions. Do not guess names."
-    )
-    ALL_SHAPES = ["single_name", "multi_name", "counting"]
-
+    # Few-shot block (drawn from corresponding MC train set)
     few_shot_block = ""
-    covered_shapes: set[str] = set()
-    train_pq   = TRAIN_PARQUET_COT if args.cot else TRAIN_PARQUET
-    train_meta_path = TRAIN_META_COT if args.cot else TRAIN_META
+    train_pq        = TRAIN_COT_MC_PARQUET if args._cot else TRAIN_MC_PARQUET
+    train_meta_path = TRAIN_COT_MC_META    if args._cot else TRAIN_MC_META
     if args.n_shot > 0 and train_pq.exists() and train_meta_path.exists():
         import random
         rng = random.Random(args.n_shot_seed)
@@ -234,12 +229,9 @@ def run_icl_eval(args) -> List[dict]:
         train_meta   = json.loads(train_meta_path.read_text())
         print(f"Few-shot source: {train_pq.name}")
 
-        # Group indices by rel so we pick at most one per relation type
         by_rel: dict[str, list[int]] = {}
         for idx, m in enumerate(train_meta):
             by_rel.setdefault(m["rel"], []).append(idx)
-
-        # Sort rel keys for determinism (set/dict iteration order safe but be explicit)
         rel_keys = sorted(by_rel.keys())
         one_per_rel = [rng.choice(sorted(by_rel[r])) for r in rel_keys]
         rng.shuffle(one_per_rel)
@@ -250,36 +242,28 @@ def run_icl_eval(args) -> List[dict]:
             q = train_convos[idx].messages[0].content.strip()
             a = train_convos[idx].messages[1].content.strip()
             lines.append(f"Q: {q}\nA: {a}")
-            covered_shapes.add(shape_of(train_meta[idx]))
         few_shot_block = "\n\nExamples:\n" + "\n\n".join(lines) + "\n\nNow answer:"
-        print(f"Few-shot: {len(selected)} examples, seed={args.n_shot_seed}, indices={selected}, covered shapes: {sorted(covered_shapes)}")
+        print(f"Few-shot: {len(selected)} examples, seed={args.n_shot_seed}")
 
-    # Format instructions: only for shapes NOT covered by examples (or all if no examples)
-    if args.n_shot > 0:
-        missing = [s for s in ALL_SHAPES if s not in covered_shapes]
-        format_instr = " ".join(SHAPE_HINTS[s] for s in missing) if missing else ""
-    else:
-        format_instr = " ".join(SHAPE_HINTS[s] for s in ALL_SHAPES)
-
-    if args.cot:
-        system_prompt = (
-            "Use the following family tree to answer questions.\n\n"
-            + corpus_text
-            + "\n\nReason step by step using the family tree, then end your answer with 'Answer: <answer>.' where <answer> is the name(s) comma-separated, a number, or 'None' / '0' if the relation is absent."
-            + "\n" + NEGATIVE_HINT
-            + few_shot_block
+    if args._cot:
+        instruction = (
+            "Use the family tree below to answer the multiple-choice question. "
+            "Reason step-by-step inside <think>...</think>, then output exactly one letter A/B/C/D/E "
+            "followed by a period (e.g. 'B.'). Output nothing after the letter."
         )
     else:
-        base = "Answer concisely."
-        if format_instr:
-            base += " " + format_instr
-        base += " " + NEGATIVE_HINT + " No explanation."
-        system_prompt = (
-            "Use the following family tree to answer questions.\n\n"
-            + corpus_text
-            + "\n\n" + base
-            + few_shot_block
+        instruction = (
+            "Use the family tree below to answer the multiple-choice question. "
+            "Output exactly one letter A/B/C/D/E followed by a period (e.g. 'B.'). "
+            "No explanation, no extra tokens."
         )
+
+    system_prompt = (
+        instruction
+        + "\n\nFamily tree:\n"
+        + corpus_text
+        + few_shot_block
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
@@ -290,37 +274,20 @@ def run_icl_eval(args) -> List[dict]:
     convos = read_conversations(str(args._test_parquet))
     meta   = json.loads(Path(args._test_meta).read_text())
     assert len(convos) == len(meta), "parquet and meta out of sync"
-    scorer = args._scorer
 
+    is_thinking_model = model_name.lower() in {m.lower() for m in MODELS_WITH_THINKING}
     kwargs = {}
-    if model_name.lower() in {m.lower() for m in MODELS_WITH_THINKING}:
-        kwargs["enable_thinking"] = False
-
+    if is_thinking_model:
+        kwargs["enable_thinking"] = bool(args._cot)
     chat_template = MODEL_TO_CHAT_TEMPLATE.get(model_name)
 
     if args.print_prompt:
         print("=" * 80)
-        print("SYSTEM PROMPT (raw, post-corpus tail):")
-        print("=" * 80)
-        # Skip corpus body: print only header + tail (rules + examples)
-        tail_marker = "\n\n"
         head, _, tail = system_prompt.partition(corpus_text)
-        print(head + "[<corpus omitted: " + str(len(corpus_text)) + " chars>]" + tail)
-        print("=" * 80)
-        sample_q = convos[0].messages[0].content
-        templated = tokenizer.apply_chat_template(
-            [{"role": "system", "content": system_prompt}, {"role": "user", "content": sample_q}],
-            add_generation_prompt=True,
-            tokenize=False,
-            chat_template=chat_template,
-            **kwargs,
-        )
-        head, _, tail = templated.partition(corpus_text)
-        print("CHAT-TEMPLATED FIRST QUERY (corpus elided):")
-        print(head + "[<corpus omitted>]" + tail)
+        print(head + f"[<corpus omitted: {len(corpus_text)} chars>]" + tail)
         print("=" * 80)
 
-    # Cache system prompt KV once — O(1) prefill instead of O(N)
+    # Cache system prefix once
     sys_prefix_len = _find_sys_prefix_len(tokenizer, system_prompt, chat_template, kwargs)
     sys_input_ids  = tokenizer.apply_chat_template(
         [{"role": "system", "content": system_prompt}, {"role": "user", "content": ""}],
@@ -329,17 +296,13 @@ def run_icl_eval(args) -> List[dict]:
         chat_template=chat_template,
         **kwargs,
     )[:, :sys_prefix_len].to(device)
-
     with torch.no_grad():
         sys_past_kv = model(sys_input_ids, use_cache=True).past_key_values
     print(f"System prefix cached: {sys_prefix_len} tokens")
 
-    import copy
-
     results = []
-    for i in tqdm(range(len(convos)), desc="ICL eval"):
+    for i in tqdm(range(len(convos)), desc=f"{args.mode} eval"):
         question = convos[i].messages[0].content
-        expected = convos[i].messages[1].content
         m        = meta[i]
 
         full_ids = tokenizer.apply_chat_template(
@@ -353,8 +316,8 @@ def run_icl_eval(args) -> List[dict]:
             **kwargs,
         ).to(device)
 
-        # Force no-thinking: append empty <think></think> block so model skips reasoning
-        if kwargs.get("enable_thinking") is False:
+        # Force empty think block for strict-letter (non-CoT) eval on a thinking model
+        if is_thinking_model and not args._cot:
             no_think_ids = torch.tensor(
                 [tokenizer.encode("<think>\n</think>\n", add_special_tokens=False)],
                 device=device,
@@ -376,22 +339,26 @@ def run_icl_eval(args) -> List[dict]:
             output_ids[0][full_ids.shape[1]:], skip_special_tokens=True
         )
         if i < 3:
-            print(f"\n[DEBUG Q{i}] {convos[i].messages[0].content}")
-            print(f"[DEBUG expected] {expected!r}")
+            print(f"\n[DEBUG Q{i}] {question}")
+            print(f"[DEBUG expected letter] {m['correct_letter']}")
             print(f"[DEBUG predicted] {pred_text!r}")
+
         results.append({
-            "category":  m["category"],
-            "rel":       m["rel"],
-            "person":    m["person"],
-            "question":  m["question"],
-            "expected":  expected,
-            "predicted": pred_text,
-            "correct":   scorer(pred_text, expected),
+            "category":        m["category"],
+            "rel":             m["rel"],
+            "person":          m["person"],
+            "question":        m.get("question_text", m.get("question", "")),
+            "options":         m["options"],
+            "correct_letter":  m["correct_letter"],
+            "predicted":       pred_text,
+            "predicted_letter": extract_letter(pred_text),
+            "correct":         score_letter(pred_text, m["correct_letter"]),
         })
 
     return results
 
 
+# ── Reporting ────────────────────────────────────────────────────────────────
 def print_results(results: List[dict], mode: str):
     total     = len(results)
     n_correct = sum(r["correct"] for r in results)
@@ -412,48 +379,59 @@ def print_results(results: List[dict], mode: str):
         nc    = sum(r["correct"] for r in rel_r)
         print(f"  {rel:20s} {nc:4d}/{len(rel_r)} = {nc/len(rel_r):.1%}")
 
+    # Letter distribution sanity check
+    from collections import Counter
+    pred_letters = Counter(r["predicted_letter"] or "?" for r in results)
+    exp_letters  = Counter(r["correct_letter"] for r in results)
+    print(f"\nPredicted letter dist: {dict(pred_letters)}")
+    print(f"Correct  letter dist: {dict(exp_letters)}")
+
 
 def print_stability(all_results: List[List[dict]], mode: str):
     import numpy as np
     accs = [sum(r["correct"] for r in run) / len(run) for run in all_results]
     print(f"\n=== {mode.upper()} STABILITY ({len(all_results)} runs) ===")
-    print(f"Accuracy per run: {[f'{a:.1%}' for a in accs]}")
+    print(f"Per run: {[f'{a:.1%}' for a in accs]}")
     print(f"Mean: {np.mean(accs):.1%}  Std: {np.std(accs):.1%}  Min: {min(accs):.1%}  Max: {max(accs):.1%}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode",           required=True, choices=["cartridge", "icl"])
-    parser.add_argument("--checkpoint",     default=None,  help="Path to .pt cache (cartridge mode)")
+    parser.add_argument("--mode", required=True,
+                        choices=["icl", "icl-cot", "cartridge", "cartridge-cot"])
+    parser.add_argument("--checkpoint",     default=None, help="Path to .pt cache (cartridge modes)")
     parser.add_argument("--model",          default="qwen1.7b", choices=list(MODEL_CONFIGS.keys()))
-    parser.add_argument("--max-new-tokens", type=int, default=64)
+    parser.add_argument("--max-new-tokens", type=int, default=None,
+                        help="Default: 8 for letter-only modes, 256 for CoT modes")
     parser.add_argument("--batch-size",     type=int, default=8)
     parser.add_argument("--device",         default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output",         default=None, help="Save per-question results JSON")
-    parser.add_argument("--cot",            action="store_true", help="Use CoT test set (test_cot.parquet)")
     parser.add_argument("--temperature",    type=float, default=0.0)
-    parser.add_argument("--n-runs",         type=int,   default=1, help="Repeat eval N times (stability check)")
-    parser.add_argument("--icl-format",     default="text", choices=["text", "json"], help="ICL context format")
-    parser.add_argument("--n-shot",         type=int,   default=0,  help="Few-shot examples from train.parquet in ICL system prompt")
-    parser.add_argument("--n-shot-seed",    type=int,   default=42, help="RNG seed for few-shot example selection")
-    parser.add_argument("--print-prompt",   action="store_true", help="Print system prompt + first chat-templated query (corpus elided)")
+    parser.add_argument("--n-runs",         type=int,   default=1)
+    parser.add_argument("--icl-format",     default="text", choices=["text", "json"])
+    parser.add_argument("--n-shot",         type=int,   default=0)
+    parser.add_argument("--n-shot-seed",    type=int,   default=42)
+    parser.add_argument("--print-prompt",   action="store_true")
     args = parser.parse_args()
 
-    # Route to correct parquet/meta/scorer
-    if args.cot:
-        args._test_parquet = TEST_PARQUET_COT
-        args._test_meta    = TEST_META_COT
-        args._scorer       = score_cot_answer
-        if args.max_new_tokens == 64:
-            args.max_new_tokens = 256
-    else:
-        args._test_parquet = TEST_PARQUET
-        args._test_meta    = TEST_META
-        args._scorer       = score_answer
+    cot_mode = args.mode in ("icl-cot", "cartridge-cot")
+    args._cot = cot_mode
 
-    run_fn = run_cartridge_eval if args.mode == "cartridge" else run_icl_eval
-    if args.mode == "cartridge":
-        assert args.checkpoint, "--checkpoint required for cartridge mode"
+    if cot_mode:
+        args._test_parquet = TEST_COT_MC_PARQUET
+        args._test_meta    = TEST_COT_MC_META
+    else:
+        args._test_parquet = TEST_MC_PARQUET
+        args._test_meta    = TEST_MC_META
+
+    if args.max_new_tokens is None:
+        args.max_new_tokens = 256 if cot_mode else 8
+
+    if args.mode in ("cartridge", "cartridge-cot"):
+        assert args.checkpoint, f"--checkpoint required for {args.mode}"
+        run_fn = run_cartridge_eval
+    else:
+        run_fn = run_icl_eval
 
     all_results = []
     for run_idx in range(args.n_runs):

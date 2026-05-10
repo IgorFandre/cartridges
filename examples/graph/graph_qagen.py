@@ -160,6 +160,109 @@ def qa_to_conversation(q: dict) -> Conversation:
     )
 
 
+# ── Multiple-choice (5 options A-E) ──────────────────────────────────────────
+OPTION_LETTERS = "ABCDE"
+
+
+def make_mc_options(answer: str, category: int, all_names: list[str], seed: int) -> tuple[list[str], int]:
+    """Return (options[5], correct_idx). Deterministic by seed."""
+    rng = random.Random(seed)
+
+    if category == 3:
+        # counting → integer distractors
+        correct_n = int(answer.rstrip("."))
+        upper = max(correct_n + 5, 8)
+        pool = [n for n in range(0, upper) if n != correct_n]
+        rng.shuffle(pool)
+        distractors = [f"{n}." for n in pool[:4]]
+    elif answer == "None.":
+        picks = rng.sample(all_names, 4)
+        distractors = [f"{n}." for n in picks]
+    elif "," not in answer:
+        # single name
+        correct_name = answer.rstrip(".")
+        pool = [n for n in all_names if n != correct_name]
+        picks = rng.sample(pool, 3)
+        distractors = [f"{p}." for p in picks] + ["None."]
+    else:
+        # multi name set
+        names_in = [n.strip() for n in answer.rstrip(".").split(",")]
+        pool_other = [n for n in all_names if n not in names_in]
+        candidates: list[list[str]] = []
+        if len(names_in) > 1:
+            candidates.append(sorted(names_in[:-1]))
+        if pool_other:
+            candidates.append(sorted(names_in + [rng.choice(pool_other)]))
+            replaced = names_in[:-1] + [rng.choice(pool_other)]
+            candidates.append(sorted(replaced))
+            k = min(len(names_in), len(pool_other))
+            candidates.append(sorted(rng.sample(pool_other, k)))
+        candidates.append([])  # None
+        seen = {tuple(sorted(names_in))}
+        distractors = []
+        for c in candidates:
+            t = tuple(c)
+            if t in seen:
+                continue
+            seen.add(t)
+            distractors.append(", ".join(c) + "." if c else "None.")
+            if len(distractors) == 4:
+                break
+        # pad with random single names if needed
+        while len(distractors) < 4 and pool_other:
+            pick = rng.choice(pool_other)
+            cand = f"{pick}."
+            if cand not in distractors and cand != answer:
+                distractors.append(cand)
+        while len(distractors) < 4:
+            distractors.append("None.")  # last resort
+
+    options = distractors[:4] + [answer]
+    rng.shuffle(options)
+    correct_idx = options.index(answer)
+    return options, correct_idx
+
+
+def format_mc_question(question: str, options: list[str]) -> str:
+    lines = [question]
+    for i, opt in enumerate(options):
+        lines.append(f"{OPTION_LETTERS[i]}. {opt}")
+    return "\n".join(lines)
+
+
+def mc_seed(q: dict) -> int:
+    return abs(hash(("mc", q["person"], q["rel"], q["question"]))) & 0xFFFFFFFF
+
+
+def build_mc_record(q: dict, all_names: list[str]) -> dict:
+    opts, idx = make_mc_options(q["answer"], q["category"], all_names, mc_seed(q))
+    return {
+        **q,
+        "options": opts,
+        "correct_idx": idx,
+        "correct_letter": OPTION_LETTERS[idx],
+        "mc_question": format_mc_question(q["question"], opts),
+    }
+
+
+def qa_to_mc_conversation(rec: dict) -> Conversation:
+    return Conversation(
+        system_prompt="",
+        metadata={
+            "category": rec["category"], "rel": rec["rel"], "person": rec["person"],
+            "options": rec["options"],
+            "correct_idx": rec["correct_idx"],
+            "correct_letter": rec["correct_letter"],
+            "original_answer": rec["answer"],
+            "question_text": rec["question"],
+        },
+        messages=[
+            Conversation.Message(role="user",      content=rec["mc_question"],          token_ids=None, top_logprobs=None),
+            Conversation.Message(role="assistant", content=f"{rec['correct_letter']}.", token_ids=None, top_logprobs=None),
+        ],
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-people",   type=int,   default=40)
@@ -237,6 +340,24 @@ def main():
     test_meta_path = OUTPUT_DIR / "test_meta.json"
     test_meta_path.write_text(json.dumps(test_qa, indent=2))
     print(f"Test metadata → {test_meta_path}")
+
+    # ── MC variants (5 options A-E, letter answer) ──────────────────────────
+    all_names = [p["name"] for p in tree.people]
+    mc_train = [build_mc_record(q, all_names) for q in train_qa]
+    mc_test  = [build_mc_record(q, all_names) for q in test_qa]
+
+    train_mc_path = OUTPUT_DIR / "train_mc.parquet"
+    test_mc_path  = OUTPUT_DIR / "test_mc.parquet"
+    write_conversations([qa_to_mc_conversation(r) for r in mc_train], str(train_mc_path))
+    write_conversations([qa_to_mc_conversation(r) for r in mc_test],  str(test_mc_path))
+    print(f"Train MC: {len(mc_train)} → {train_mc_path}")
+    print(f"Test  MC: {len(mc_test)}  → {test_mc_path}")
+
+    test_meta_mc_path  = OUTPUT_DIR / "test_meta_mc.json"
+    train_meta_mc_path = OUTPUT_DIR / "train_meta_mc.json"
+    test_meta_mc_path.write_text(json.dumps(mc_test,  indent=2))
+    train_meta_mc_path.write_text(json.dumps(mc_train, indent=2))
+    print(f"MC metadata → {test_meta_mc_path}, {train_meta_mc_path}")
 
 
 if __name__ == "__main__":
