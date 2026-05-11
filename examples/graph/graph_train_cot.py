@@ -18,7 +18,8 @@ import pydrantic
 from cartridges.initialization import KVFromText
 from cartridges.train import TrainConfig, GenerationEvalConfig
 from cartridges.models import HFModelConfig, FlexQwen3ForCausalLM
-from cartridges.datasets import DataSource, GenerateEvalDataset, TrainDataset
+from cartridges.datasets import DataSource, TrainDataset
+from examples.graph.graph_mc_eval import GraphMCEvalDataset
 
 OUTPUT_DIR = Path(__file__).parent
 
@@ -46,11 +47,12 @@ config = TrainConfig(
     generate_eval_every_n_steps=100,
     generate_evals=[
         GenerationEvalConfig(
-            dataset=GenerateEvalDataset.Config(
+            dataset=GraphMCEvalDataset.Config(
                 data_source=DataSource(
                     path=str(OUTPUT_DIR / "test_cot_mc.parquet"),
                     type="local",
                 ),
+                cot=True,
             ),
             name_for_wandb="kinship_cot_mc_test",
             generate_max_new_tokens=256,
