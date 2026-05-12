@@ -54,6 +54,25 @@ OUTPUT_BASE = Path(
 )
 
 SEED = 42
+# CoT enabled by default; disable with COT=0
+USE_COT = os.environ.get("COT", "1") != "0"
+
+if USE_COT:
+    TRAIN_PARQUET_NAME = "train_cot_mc.parquet"
+    TEST_PARQUET_NAME  = "test_cot_mc.parquet"
+    PACKED_SEQ_LEN     = 512
+    MAX_NEW_TOKENS     = 256
+    EVAL_BS            = 8
+    NAME_SUFFIX        = "cot"
+    EVAL_TAG           = "kinship_cot_mc_test"
+else:
+    TRAIN_PARQUET_NAME = "train_mc.parquet"
+    TEST_PARQUET_NAME  = "test_mc.parquet"
+    PACKED_SEQ_LEN     = 256
+    MAX_NEW_TOKENS     = 8
+    EVAL_BS            = 16
+    NAME_SUFFIX        = "ntp"
+    EVAL_TAG           = "kinship_mc_test"
 
 
 def build_config(variant: str) -> TrainConfig:
@@ -72,9 +91,9 @@ def build_config(variant: str) -> TrainConfig:
         epochs=20,
         global_batch_size=32,
         dataset=TrainDataset.Config(
-            data_sources=[DataSource(path=str(variant_dir / "train_mc.parquet"), type="local")],
+            data_sources=[DataSource(path=str(variant_dir / TRAIN_PARQUET_NAME), type="local")],
             targets="tokens",
-            packed_seq_length=256,
+            packed_seq_length=PACKED_SEQ_LEN,
             packing_mode="pad",
         ),
         generate_eval_every_n_steps=100,
@@ -82,20 +101,20 @@ def build_config(variant: str) -> TrainConfig:
             GenerationEvalConfig(
                 dataset=GraphMCEvalDataset.Config(
                     data_source=DataSource(
-                        path=str(variant_dir / "test_mc.parquet"),
+                        path=str(variant_dir / TEST_PARQUET_NAME),
                         type="local",
                     ),
-                    cot=False,
+                    cot=USE_COT,
                 ),
-                name_for_wandb=f"kinship_mc_test_{variant}",
-                generate_max_new_tokens=8,
-                batch_size=16,
+                name_for_wandb=f"{EVAL_TAG}_{variant}",
+                generate_max_new_tokens=MAX_NEW_TOKENS,
+                batch_size=EVAL_BS,
                 temperature=0.0,
             )
         ],
         save_every_n_steps=200,
-        output_dir=str(OUTPUT_BASE / variant),
-        name=f"graph-variant-{variant}",
+        output_dir=str(OUTPUT_BASE / NAME_SUFFIX / variant),
+        name=f"graph-variant-{NAME_SUFFIX}-{variant}",
         distributed_backend="gloo",
     )
 

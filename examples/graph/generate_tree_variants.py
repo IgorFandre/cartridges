@@ -25,6 +25,9 @@ from examples.graph.graph_qagen import (
     build_rel_lookup, generate_qa_pairs, build_mc_record,
     qa_to_mc_conversation,
 )
+from examples.graph.graph_qagen_cot import (
+    generate_cot_qa_pairs, build_mc_cot_record, qa_to_mc_cot_conversation,
+)
 
 BASE_TREE = Path(__file__).parent / "family_tree.json"
 OUT_ROOT = Path(__file__).parent / "variants"
@@ -32,6 +35,8 @@ OUT_ROOT = Path(__file__).parent / "variants"
 
 def swap_name_in_tree(tree_data: dict, old: str, new: str) -> dict:
     out = json.loads(json.dumps(tree_data))
+    if old == new:
+        return out  # identity: keep original tree
     found = False
     for p in out["people"]:
         if p["name"] == old:
@@ -93,8 +98,27 @@ def build_variant(tree_data: dict, out_dir: Path, neg_frac: float, train_frac: f
     (out_dir / "train_meta_mc.json").write_text(json.dumps(mc_train, indent=2))
     (out_dir / "test_meta_mc.json").write_text(json.dumps(mc_test, indent=2))
 
+    # ── CoT variants ───────────────────────────────────────────────────────
+    cot_qa = generate_cot_qa_pairs(tree, lookup)
+    cot_index = {(q["person"], q["rel"]): q for q in cot_qa}
+    # match the same train/test split via (person, rel) keys
+    train_keys = {(q["person"], q["rel"]) for q in train_qa}
+    test_keys  = {(q["person"], q["rel"]) for q in test_qa}
+    cot_train_qa = [cot_index[k] for k in train_keys if k in cot_index]
+    cot_test_qa  = [cot_index[k] for k in test_keys  if k in cot_index]
+
+    mc_cot_train = [build_mc_cot_record(q, all_names) for q in cot_train_qa]
+    mc_cot_test  = [build_mc_cot_record(q, all_names) for q in cot_test_qa]
+    write_conversations([qa_to_mc_cot_conversation(r) for r in mc_cot_train],
+                        str(out_dir / "train_cot_mc.parquet"))
+    write_conversations([qa_to_mc_cot_conversation(r) for r in mc_cot_test],
+                        str(out_dir / "test_cot_mc.parquet"))
+    (out_dir / "train_meta_cot_mc.json").write_text(json.dumps(mc_cot_train, indent=2))
+    (out_dir / "test_meta_cot_mc.json").write_text(json.dumps(mc_cot_test, indent=2))
+
     print(f"  {out_dir.name}: corpus {len(corpus_text.split())} words, "
-          f"train {len(mc_train)} / test {len(mc_test)}")
+          f"train {len(mc_train)} (cot {len(mc_cot_train)}) / "
+          f"test {len(mc_test)} (cot {len(mc_cot_test)})")
 
 
 def main():

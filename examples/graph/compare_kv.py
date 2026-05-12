@@ -49,6 +49,10 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt-root", type=str,
                    default=str(Path(__file__).parent / "checkpoints_variants"))
+    p.add_argument("--subdir", type=str, default="cot",
+                   help="Subdir under ckpt-root: 'cot' or 'ntp'")
+    p.add_argument("--variants", type=str, default=None,
+                   help="Comma-separated subset of variants (override meta).")
     p.add_argument("--variants-root", type=str,
                    default=str(Path(__file__).parent / "variants"))
     p.add_argument("--out-dir", type=str,
@@ -60,7 +64,10 @@ def main():
     if not variants_meta.exists():
         raise FileNotFoundError(f"{variants_meta} missing")
     meta = json.loads(variants_meta.read_text())
-    variants = [v.lower() for v in meta["variants"]]
+    if args.variants:
+        variants = [v.strip().lower() for v in args.variants.split(",") if v.strip()]
+    else:
+        variants = [v.lower() for v in meta["variants"]]
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -70,7 +77,10 @@ def main():
 
     caches: dict[str, tuple[list[torch.Tensor], list[torch.Tensor]]] = {}
     for v in variants:
-        vdir = ckpt_root / v
+        # prefer ckpt_root/<subdir>/<variant>, fall back to ckpt_root/<variant>
+        vdir = ckpt_root / args.subdir / v
+        if not vdir.exists():
+            vdir = ckpt_root / v
         pt = find_cache_last(vdir)
         caches[v] = load_cache(pt)
         K, V = caches[v]
