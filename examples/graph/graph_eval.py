@@ -412,12 +412,35 @@ def main():
     parser.add_argument("--n-shot",         type=int,   default=0)
     parser.add_argument("--n-shot-seed",    type=int,   default=42)
     parser.add_argument("--print-prompt",   action="store_true")
+    parser.add_argument("--test-parquet",   default=None,
+                        help="Override test parquet path (e.g. variants/ben/test_mc.parquet)")
+    parser.add_argument("--test-meta",      default=None,
+                        help="Override test meta json path. Defaults to <test-parquet stem>_meta.json")
+    parser.add_argument("--variant-dir",    default=None,
+                        help="Shortcut: variants/<name>/. Picks test_mc.parquet or test_cot_mc.parquet by mode.")
     args = parser.parse_args()
 
     cot_mode = args.mode in ("icl-cot", "cartridge-cot")
     args._cot = cot_mode
 
-    if cot_mode:
+    if args.variant_dir:
+        vd = Path(args.variant_dir)
+        if cot_mode:
+            args._test_parquet = vd / "test_cot_mc.parquet"
+            args._test_meta    = vd / "test_meta_cot_mc.json"
+        else:
+            args._test_parquet = vd / "test_mc.parquet"
+            args._test_meta    = vd / "test_meta_mc.json"
+    elif args.test_parquet:
+        args._test_parquet = Path(args.test_parquet)
+        if args.test_meta:
+            args._test_meta = Path(args.test_meta)
+        else:
+            stem = args._test_parquet.stem
+            args._test_meta = args._test_parquet.with_name(
+                stem.replace("test_", "test_meta_") + ".json"
+            )
+    elif cot_mode:
         args._test_parquet = TEST_COT_MC_PARQUET
         args._test_meta    = TEST_COT_MC_META
     else:
