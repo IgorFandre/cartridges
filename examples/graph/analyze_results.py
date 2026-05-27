@@ -55,11 +55,11 @@ def analyze_run(results: list[dict], run_idx: int = 0, n_runs: int = 1,
 
     # ── per-category ────────────────────────────────────────────────────────
     section("per category")
-    by_cat: dict[int, list[dict]] = defaultdict(list)
+    by_cat: dict[str, list[dict]] = defaultdict(list)
     for r in results:
-        by_cat[r["category"]].append(r)
+        by_cat[str(r["category"])].append(r)
     print(f"{'cat':<5}{'N':>6}{'correct':>10}{'acc':>10}")
-    for cat in sorted(by_cat):
+    for cat in sorted(by_cat, key=lambda c: (c[0], c)):
         rs = by_cat[cat]
         c = sum(r["correct"] for r in rs)
         print(f"{cat:<5}{len(rs):>6}{c:>10}{acc(rs) * 100:>9.2f}%")

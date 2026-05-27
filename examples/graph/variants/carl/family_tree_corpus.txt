@@ -1,25 +1,36 @@
 Family tree:
-Carl is married to Karen.
-Carl and Karen have children: Jessica, Kenneth, Linda.
-David is married to Stephanie.
-David and Stephanie have children: Jennifer, Mark.
-Kenneth is married to Melissa.
-Kenneth and Melissa have children: Carol, Donna, Emily.
-Linda is married to Edward.
-Linda and Edward have children: Donald, Matthew.
-Emily is married to Daniel.
-Emily and Daniel have children: Paul, Sandra.
-Donna is married to Andrew.
-Donna and Andrew have children: Amanda, Anthony, Betty.
-Matthew is married to Nancy.
-Matthew and Nancy have children: Barbara, Richard, Susan.
-Donald is married to Ashley.
-Donald and Ashley have children: Deborah, Robert.
-Sandra is married to John.
-Sandra and John have children: George, Lisa, William.
-Paul is married to Patricia.
-Amanda is married to Kevin.
-Barbara is married to Charles.
-Deborah is married to Brian.
-Lisa is married to Joseph.
-William is married to Dorothy.
+Carl is married to Stephanie.
+Carl and Stephanie have children: Daniel.
+David is married to Laura.
+David and Laura have children: Deborah, Steven.
+Daniel is married to Jessica.
+Daniel and Jessica have children: Brian, Matthew.
+Deborah is married to Timothy.
+Deborah and Timothy have children: Ashley, Elizabeth.
+Steven is married to Dorothy.
+Steven and Dorothy have children: Karen.
+Matthew is married to Mary.
+Matthew and Mary have children: Anthony.
+Brian is married to Carol.
+Brian and Carol have children: Donna, Michelle.
+Elizabeth is married to Richard.
+Elizabeth and Richard have children: Angela, Ryan.
+Karen is married to George.
+Karen and George have children: Melissa, Ronald.
+Anthony is married to Kathleen.
+Anthony and Kathleen have children: Amy, Patricia.
+Michelle is married to Paul.
+Michelle and Paul have children: Amanda.
+Donna is married to Charles.
+Donna and Charles have children: Mark.
+Ryan is married to Emily.
+Ryan and Emily have children: Sharon.
+Angela is married to Donald.
+Angela and Donald have children: Betty, Jennifer.
+Ronald is married to Sandra.
+Melissa is married to Joshua.
+Patricia is married to Gary.
+Amanda is married to John.
+Mark is married to Nancy.
+Sharon is married to Kenneth.
+Betty is married to Robert.

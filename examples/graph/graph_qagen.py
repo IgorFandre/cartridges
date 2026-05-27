@@ -147,8 +147,10 @@ def format_answer(names: list[str]) -> str:
 
 # ── Cat 1/1m/1w/2/2m: deterministic per (person, template) ──────────────────
 def _qa_record(question, answer, category, rel, person, **extra):
+    # category is coerced to string so parquet schema stays consistent across
+    # subcategories like "1m" / "1w" / "2m".
     return {
-        "question": question, "answer": answer, "category": category,
+        "question": question, "answer": answer, "category": str(category),
         "rel": rel, "person": person, **extra,
     }
 

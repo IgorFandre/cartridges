@@ -1,5 +1,5 @@
 {
-  "target_original_name": "Steven",
+  "target_original_name": "Jason",
   "variants": [
     "Alex",
     "Ben",
@@ -7,7 +7,7 @@
     "Dan"
   ],
   "seed": 42,
-  "train_frac": 0.8,
-  "neg_frac": 0.3,
+  "test_frac": 0.2,
+  "n_verif_per_rel": 12,
   "note": "Alex is the canonical/anchor variant. Init cache for exp2 uses Alex corpus for all variants."
 }

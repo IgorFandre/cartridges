@@ -365,12 +365,13 @@ def print_results(results: List[dict], mode: str):
     print(f"\n=== {mode.upper()} ===")
     print(f"Overall  {n_correct:4d}/{total} = {n_correct/total:.1%}")
 
-    for cat in [1, 2, 3]:
-        cat_r = [r for r in results if r["category"] == cat]
+    cats = sorted({str(r["category"]) for r in results}, key=lambda c: (c[0], c))
+    for cat in cats:
+        cat_r = [r for r in results if str(r["category"]) == cat]
         if not cat_r:
             continue
         nc = sum(r["correct"] for r in cat_r)
-        print(f"  Cat {cat}  {nc:4d}/{len(cat_r)} = {nc/len(cat_r):.1%}")
+        print(f"  Cat {cat:>3}  {nc:4d}/{len(cat_r)} = {nc/len(cat_r):.1%}")
 
     rels = sorted(set(r["rel"] for r in results))
     print("\nPer relation:")
