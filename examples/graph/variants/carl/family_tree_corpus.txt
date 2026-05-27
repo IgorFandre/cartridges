@@ -1,36 +1,37 @@
 Family tree:
 Carl is married to Stephanie.
-Carl and Stephanie have children: Daniel.
+Carl and Stephanie have children: David.
 David is married to Laura.
-David and Laura have children: Deborah, Steven.
-Daniel is married to Jessica.
-Daniel and Jessica have children: Brian, Matthew.
-Deborah is married to Timothy.
-Deborah and Timothy have children: Ashley, Elizabeth.
-Steven is married to Dorothy.
-Steven and Dorothy have children: Karen.
+David and Laura have children: Daniel, Jessica.
+Jessica is married to Steven.
+Jessica and Steven have children: Matthew, Timothy.
+Daniel is married to Deborah.
+Daniel and Deborah have children: Ashley, Carol.
+Timothy is married to Dorothy.
+Timothy and Dorothy have children: Elizabeth.
 Matthew is married to Mary.
-Matthew and Mary have children: Anthony.
-Brian is married to Carol.
-Brian and Carol have children: Donna, Michelle.
+Matthew and Mary have children: George.
+Ashley is married to Brian.
+Ashley and Brian have children: Kathleen, Michelle.
 Elizabeth is married to Richard.
-Elizabeth and Richard have children: Angela, Ryan.
-Karen is married to George.
-Karen and George have children: Melissa, Ronald.
-Anthony is married to Kathleen.
-Anthony and Kathleen have children: Amy, Patricia.
+Elizabeth and Richard have children: Charles, Donna.
+George is married to Karen.
+George and Karen have children: Donald, Emily.
+Kathleen is married to Anthony.
+Kathleen and Anthony have children: Patricia, Sandra.
 Michelle is married to Paul.
-Michelle and Paul have children: Amanda.
-Donna is married to Charles.
-Donna and Charles have children: Mark.
-Ryan is married to Emily.
-Ryan and Emily have children: Sharon.
-Angela is married to Donald.
-Angela and Donald have children: Betty, Jennifer.
-Ronald is married to Sandra.
-Melissa is married to Joshua.
-Patricia is married to Gary.
-Amanda is married to John.
-Mark is married to Nancy.
+Michelle and Paul have children: Amy.
+Charles is married to Angela.
+Charles and Angela have children: John.
+Donna is married to Ryan.
+Donna and Ryan have children: Nancy.
+Donald is married to Melissa.
+Donald and Melissa have children: Betty, Sharon.
+Emily is married to Ronald.
+Emily and Ronald have children: Robert.
+Sandra is married to Joshua.
+Amy is married to Gary.
+John is married to Amanda.
+Nancy is married to Mark.
 Sharon is married to Kenneth.
-Betty is married to Robert.
+Robert is married to Jennifer.

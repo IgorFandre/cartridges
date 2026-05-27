@@ -1,43 +1,43 @@
 This is the story of a family.
 
-Jason took Stephanie as a spouse. Their family grew to include one child, Daniel.
+Jason took Stephanie as a spouse. Their family grew to include one child, David.
 
-David and Laura were married. The couple had 2 children — Deborah, and Steven.
+David and Laura were married. The couple had 2 children — Daniel, and Jessica.
 
-Daniel took Jessica as a spouse. Their family grew to include 2 children — Brian, and Matthew.
+Jessica took Steven as a spouse. Their family grew to include 2 children — Matthew, and Timothy.
 
-Deborah and Timothy built a life together. Their family grew to include 2 children — Ashley, and Elizabeth.
+Daniel and Deborah built a life together. Their family grew to include 2 children — Ashley, and Carol.
 
-Steven and Dorothy built a life together. Steven and Dorothy raised one child, Karen.
+Timothy and Dorothy built a life together. Timothy and Dorothy raised one child, Elizabeth.
 
-Matthew married Mary. The couple had one child, Anthony.
+Matthew married Mary. The couple had one child, George.
 
-Brian married Carol. Together, Brian and Carol had 2 children — Donna, and Michelle.
+Ashley married Brian. Together, Ashley and Brian had 2 children — Kathleen, and Michelle.
 
-Elizabeth and Richard built a life together. Elizabeth and Richard raised 2 children — Angela, and Ryan.
+Elizabeth and Richard built a life together. Elizabeth and Richard raised 2 children — Charles, and Donna.
 
-Karen and George built a life together. Together, Karen and George had 2 children — Melissa, and Ronald.
+George and Karen built a life together. Together, George and Karen had 2 children — Donald, and Emily.
 
-Anthony and Kathleen were married. The couple had 2 children — Amy, and Patricia.
+Kathleen and Anthony were married. The couple had 2 children — Patricia, and Sandra.
 
-Michelle took Paul as a spouse. Together, Michelle and Paul had one child, Amanda.
+Michelle took Paul as a spouse. Together, Michelle and Paul had one child, Amy.
 
-Donna and Charles built a life together. Their family grew to include one child, Mark.
+Charles and Angela built a life together. Their family grew to include one child, John.
 
-Ryan and Emily built a life together. Ryan and Emily raised one child, Sharon.
+Donna and Ryan built a life together. Donna and Ryan raised one child, Nancy.
 
-Angela took Donald as a spouse. Their family grew to include 2 children — Betty, and Jennifer.
+Donald took Melissa as a spouse. Their family grew to include 2 children — Betty, and Sharon.
 
-Ronald and Sandra built a life together.
+Emily and Ronald built a life together. Together, Emily and Ronald had one child, Robert.
 
-Melissa and Joshua were married.
+Sandra and Joshua were married.
 
-Patricia and Gary were married.
+Amy and Gary were married.
 
-Amanda and John were married.
+John took Amanda as a spouse.
 
-Mark took Nancy as a spouse.
+Nancy and Mark were married.
 
-Sharon and Kenneth were married.
+Sharon took Kenneth as a spouse.
 
-Betty took Robert as a spouse.
+Robert and Jennifer built a life together.

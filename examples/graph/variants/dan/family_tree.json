@@ -17,36 +17,32 @@
       "gender": "female"
     },
     {
-      "name": "Daniel",
-      "gender": "male"
-    },
-    {
       "name": "Jessica",
       "gender": "female"
     },
     {
-      "name": "Deborah",
-      "gender": "female"
+      "name": "Daniel",
+      "gender": "male"
     },
     {
       "name": "Steven",
       "gender": "male"
     },
     {
-      "name": "Timothy",
-      "gender": "male"
+      "name": "Deborah",
+      "gender": "female"
     },
     {
-      "name": "Dorothy",
-      "gender": "female"
+      "name": "Timothy",
+      "gender": "male"
     },
     {
       "name": "Matthew",
       "gender": "male"
     },
     {
-      "name": "Brian",
-      "gender": "male"
+      "name": "Dorothy",
+      "gender": "female"
     },
     {
       "name": "Mary",
@@ -61,6 +57,10 @@
       "gender": "female"
     },
     {
+      "name": "Brian",
+      "gender": "male"
+    },
+    {
       "name": "Elizabeth",
       "gender": "female"
     },
@@ -69,16 +69,12 @@
       "gender": "male"
     },
     {
-      "name": "Karen",
-      "gender": "female"
-    },
-    {
       "name": "George",
       "gender": "male"
     },
     {
-      "name": "Anthony",
-      "gender": "male"
+      "name": "Karen",
+      "gender": "female"
     },
     {
       "name": "Kathleen",
@@ -89,8 +85,8 @@
       "gender": "female"
     },
     {
-      "name": "Donna",
-      "gender": "female"
+      "name": "Anthony",
+      "gender": "male"
     },
     {
       "name": "Paul",
@@ -101,40 +97,44 @@
       "gender": "male"
     },
     {
-      "name": "Ryan",
-      "gender": "male"
+      "name": "Donna",
+      "gender": "female"
     },
     {
       "name": "Angela",
       "gender": "female"
     },
     {
-      "name": "Emily",
-      "gender": "female"
+      "name": "Ryan",
+      "gender": "male"
     },
     {
       "name": "Donald",
       "gender": "male"
     },
     {
-      "name": "Ronald",
-      "gender": "male"
+      "name": "Emily",
+      "gender": "female"
     },
     {
       "name": "Melissa",
       "gender": "female"
     },
     {
+      "name": "Ronald",
+      "gender": "male"
+    },
+    {
       "name": "Sandra",
+      "gender": "female"
+    },
+    {
+      "name": "Patricia",
       "gender": "female"
     },
     {
       "name": "Joshua",
       "gender": "male"
-    },
-    {
-      "name": "Patricia",
-      "gender": "female"
     },
     {
       "name": "Amy",
@@ -145,23 +145,27 @@
       "gender": "male"
     },
     {
-      "name": "Amanda",
-      "gender": "female"
-    },
-    {
       "name": "John",
       "gender": "male"
     },
     {
-      "name": "Mark",
-      "gender": "male"
+      "name": "Amanda",
+      "gender": "female"
     },
     {
       "name": "Nancy",
       "gender": "female"
     },
     {
+      "name": "Mark",
+      "gender": "male"
+    },
+    {
       "name": "Sharon",
+      "gender": "female"
+    },
+    {
+      "name": "Betty",
       "gender": "female"
     },
     {
@@ -169,138 +173,142 @@
       "gender": "male"
     },
     {
-      "name": "Betty",
-      "gender": "female"
+      "name": "Robert",
+      "gender": "male"
     },
     {
       "name": "Jennifer",
       "gender": "female"
-    },
-    {
-      "name": "Robert",
-      "gender": "male"
     }
   ],
   "parent_child": [
     {
       "parent": "Dan",
-      "child": "Daniel"
+      "child": "David"
     },
     {
       "parent": "Stephanie",
+      "child": "David"
+    },
+    {
+      "parent": "David",
+      "child": "Jessica"
+    },
+    {
+      "parent": "Laura",
+      "child": "Jessica"
+    },
+    {
+      "parent": "David",
       "child": "Daniel"
     },
     {
-      "parent": "David",
-      "child": "Deborah"
-    },
-    {
       "parent": "Laura",
-      "child": "Deborah"
-    },
-    {
-      "parent": "David",
-      "child": "Steven"
-    },
-    {
-      "parent": "Laura",
-      "child": "Steven"
-    },
-    {
-      "parent": "Daniel",
-      "child": "Matthew"
-    },
-    {
-      "parent": "Jessica",
-      "child": "Matthew"
-    },
-    {
-      "parent": "Daniel",
-      "child": "Brian"
-    },
-    {
-      "parent": "Jessica",
-      "child": "Brian"
-    },
-    {
-      "parent": "Timothy",
-      "child": "Ashley"
-    },
-    {
-      "parent": "Deborah",
-      "child": "Ashley"
-    },
-    {
-      "parent": "Timothy",
-      "child": "Elizabeth"
-    },
-    {
-      "parent": "Deborah",
-      "child": "Elizabeth"
+      "child": "Daniel"
     },
     {
       "parent": "Steven",
-      "child": "Karen"
+      "child": "Timothy"
+    },
+    {
+      "parent": "Jessica",
+      "child": "Timothy"
+    },
+    {
+      "parent": "Steven",
+      "child": "Matthew"
+    },
+    {
+      "parent": "Jessica",
+      "child": "Matthew"
+    },
+    {
+      "parent": "Daniel",
+      "child": "Carol"
+    },
+    {
+      "parent": "Deborah",
+      "child": "Carol"
+    },
+    {
+      "parent": "Daniel",
+      "child": "Ashley"
+    },
+    {
+      "parent": "Deborah",
+      "child": "Ashley"
+    },
+    {
+      "parent": "Timothy",
+      "child": "Elizabeth"
     },
     {
       "parent": "Dorothy",
-      "child": "Karen"
+      "child": "Elizabeth"
     },
     {
       "parent": "Matthew",
-      "child": "Anthony"
+      "child": "George"
     },
     {
       "parent": "Mary",
-      "child": "Anthony"
+      "child": "George"
+    },
+    {
+      "parent": "Brian",
+      "child": "Kathleen"
+    },
+    {
+      "parent": "Ashley",
+      "child": "Kathleen"
     },
     {
       "parent": "Brian",
       "child": "Michelle"
     },
     {
-      "parent": "Carol",
+      "parent": "Ashley",
       "child": "Michelle"
     },
     {
-      "parent": "Brian",
-      "child": "Donna"
-    },
-    {
-      "parent": "Carol",
-      "child": "Donna"
-    },
-    {
       "parent": "Richard",
-      "child": "Ryan"
+      "child": "Charles"
     },
     {
       "parent": "Elizabeth",
-      "child": "Ryan"
+      "child": "Charles"
     },
     {
       "parent": "Richard",
-      "child": "Angela"
+      "child": "Donna"
     },
     {
       "parent": "Elizabeth",
-      "child": "Angela"
+      "child": "Donna"
     },
     {
       "parent": "George",
-      "child": "Ronald"
+      "child": "Donald"
     },
     {
       "parent": "Karen",
-      "child": "Ronald"
+      "child": "Donald"
     },
     {
       "parent": "George",
-      "child": "Melissa"
+      "child": "Emily"
     },
     {
       "parent": "Karen",
-      "child": "Melissa"
+      "child": "Emily"
+    },
+    {
+      "parent": "Anthony",
+      "child": "Sandra"
+    },
+    {
+      "parent": "Kathleen",
+      "child": "Sandra"
     },
     {
       "parent": "Anthony",
@@ -309,54 +317,54 @@
     {
       "parent": "Kathleen",
       "child": "Patricia"
-    },
-    {
-      "parent": "Anthony",
-      "child": "Amy"
-    },
-    {
-      "parent": "Kathleen",
-      "child": "Amy"
     },
     {
       "parent": "Paul",
-      "child": "Amanda"
+      "child": "Amy"
     },
     {
       "parent": "Michelle",
-      "child": "Amanda"
+      "child": "Amy"
     },
     {
       "parent": "Charles",
-      "child": "Mark"
+      "child": "John"
     },
     {
-      "parent": "Donna",
-      "child": "Mark"
+      "parent": "Angela",
+      "child": "John"
     },
     {
       "parent": "Ryan",
+      "child": "Nancy"
+    },
+    {
+      "parent": "Donna",
+      "child": "Nancy"
+    },
+    {
+      "parent": "Donald",
       "child": "Sharon"
+    },
+    {
+      "parent": "Melissa",
+      "child": "Sharon"
+    },
+    {
+      "parent": "Donald",
+      "child": "Betty"
+    },
+    {
+      "parent": "Melissa",
+      "child": "Betty"
+    },
+    {
+      "parent": "Ronald",
+      "child": "Robert"
     },
     {
       "parent": "Emily",
-      "child": "Sharon"
-    },
-    {
-      "parent": "Donald",
-      "child": "Betty"
-    },
-    {
-      "parent": "Angela",
-      "child": "Betty"
-    },
-    {
-      "parent": "Donald",
-      "child": "Jennifer"
-    },
-    {
-      "parent": "Angela",
-      "child": "Jennifer"
+      "child": "Robert"
     }
   ],
   "spouses": [
@@ -369,15 +377,15 @@
       "b": "Laura"
     },
     {
+      "a": "Jessica",
+      "b": "Steven"
+    },
+    {
       "a": "Daniel",
-      "b": "Jessica"
+      "b": "Deborah"
     },
     {
-      "a": "Deborah",
-      "b": "Timothy"
-    },
-    {
-      "a": "Steven",
+      "a": "Timothy",
       "b": "Dorothy"
     },
     {
@@ -385,70 +393,70 @@
       "b": "Mary"
     },
     {
-      "a": "Brian",
-      "b": "Carol"
+      "a": "Ashley",
+      "b": "Brian"
     },
     {
       "a": "Elizabeth",
       "b": "Richard"
     },
     {
-      "a": "Karen",
-      "b": "George"
+      "a": "George",
+      "b": "Karen"
     },
     {
-      "a": "Anthony",
-      "b": "Kathleen"
+      "a": "Kathleen",
+      "b": "Anthony"
     },
     {
       "a": "Michelle",
       "b": "Paul"
     },
     {
+      "a": "Charles",
+      "b": "Angela"
+    },
+    {
       "a": "Donna",
-      "b": "Charles"
+      "b": "Ryan"
     },
     {
-      "a": "Ryan",
-      "b": "Emily"
+      "a": "Donald",
+      "b": "Melissa"
     },
     {
-      "a": "Angela",
-      "b": "Donald"
+      "a": "Emily",
+      "b": "Ronald"
     },
     {
-      "a": "Ronald",
-      "b": "Sandra"
-    },
-    {
-      "a": "Melissa",
+      "a": "Sandra",
       "b": "Joshua"
     },
     {
-      "a": "Patricia",
+      "a": "Amy",
       "b": "Gary"
     },
     {
-      "a": "Amanda",
-      "b": "John"
+      "a": "John",
+      "b": "Amanda"
     },
     {
-      "a": "Mark",
-      "b": "Nancy"
+      "a": "Nancy",
+      "b": "Mark"
     },
     {
       "a": "Sharon",
       "b": "Kenneth"
     },
     {
-      "a": "Betty",
-      "b": "Robert"
+      "a": "Robert",
+      "b": "Jennifer"
     }
   ],
   "_meta": {
     "n_people": 45,
-    "depth": 4,
-    "founders": 2,
+    "depth": 6,
+    "founders": 1,
     "min_kids": 1,
     "max_kids": 2,
     "spouse_prob": 0.95,
