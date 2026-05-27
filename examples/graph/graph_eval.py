@@ -53,26 +53,19 @@ VALID_LETTERS = ("A", "B", "C", "D", "E")
 
 
 # ── Letter extraction ────────────────────────────────────────────────────────
-def extract_letter(text: str) -> str:
-    """Pull A-E out of model output. Robust to '<think>...</think>\\n\\nB.', 'B.', 'Answer: B', etc."""
-    s = text
-    # Strip any <think>...</think> block(s)
-    s = re.sub(r"<think>.*?</think>", "", s, flags=re.DOTALL).strip()
-
-    # Direct: optional "Answer:" prefix, then letter
-    m = re.search(r"(?:answer\s*[:\-]?\s*)?\b([A-E])\b\.?", s, flags=re.IGNORECASE)
+def extract_letter(text: str, n_options: int = 5) -> str:
+    """Pull a valid option letter (A..A+n-1) from `text`. Strips <think>…</think> first."""
+    s = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+    valid = "ABCDE"[:n_options]
+    m = re.search(rf"(?:answer\s*[:\-]?\s*)?\b([{valid}])\b\.?", s, flags=re.IGNORECASE)
     if m:
         return m.group(1).upper()
-
-    # Fallback: very first A-E char anywhere
-    m2 = re.search(r"[A-Ea-e]", s)
-    if m2:
-        return m2.group(0).upper()
-    return ""
+    m2 = re.search(f"[{valid}{valid.lower()}]", s)
+    return m2.group(0).upper() if m2 else ""
 
 
-def score_letter(pred: str, expected_letter: str) -> bool:
-    return extract_letter(pred) == expected_letter.upper()
+def score_letter(pred: str, expected_letter: str, n_options: int = 5) -> bool:
+    return extract_letter(pred, n_options=n_options) == expected_letter.upper()
 
 
 # ── Input building (cartridge mode) ──────────────────────────────────────────
@@ -176,10 +169,11 @@ def run_cartridge_eval(args) -> List[dict]:
                 "person":          m["person"],
                 "question":        m.get("question_text", m.get("question", "")),
                 "options":         m["options"],
+                "n_options":       m.get("n_options", len(m["options"])),
                 "correct_letter":  m["correct_letter"],
                 "predicted":       pred_text,
-                "predicted_letter": extract_letter(pred_text),
-                "correct":         score_letter(pred_text, m["correct_letter"]),
+                "predicted_letter": extract_letter(pred_text, n_options=m.get("n_options", len(m["options"]))),
+                "correct":         score_letter(pred_text, m["correct_letter"], n_options=m.get("n_options", len(m["options"]))),
             })
 
     return results
@@ -213,8 +207,12 @@ def run_icl_eval(args) -> List[dict]:
     model_name = MODEL_CONFIGS[args.model]
     device = args.device
 
-    if args.icl_format == "json":
+    if args.corpus_path:
+        corpus_text = Path(args.corpus_path).read_text()
+    elif args.icl_format == "json":
         corpus_text = CORPUS_JSON_PATH.read_text()
+    elif args.icl_format == "narrative":
+        corpus_text = (OUTPUT_DIR / "family_tree_narrative.txt").read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
 
@@ -343,16 +341,18 @@ def run_icl_eval(args) -> List[dict]:
             print(f"[DEBUG expected letter] {m['correct_letter']}")
             print(f"[DEBUG predicted] {pred_text!r}")
 
+        n_opt = m.get("n_options", len(m["options"]))
         results.append({
             "category":        m["category"],
             "rel":             m["rel"],
             "person":          m["person"],
             "question":        m.get("question_text", m.get("question", "")),
             "options":         m["options"],
+            "n_options":       n_opt,
             "correct_letter":  m["correct_letter"],
             "predicted":       pred_text,
-            "predicted_letter": extract_letter(pred_text),
-            "correct":         score_letter(pred_text, m["correct_letter"]),
+            "predicted_letter": extract_letter(pred_text, n_options=n_opt),
+            "correct":         score_letter(pred_text, m["correct_letter"], n_options=n_opt),
         })
 
     return results
@@ -408,7 +408,11 @@ def main():
     parser.add_argument("--output",         default=None, help="Save per-question results JSON")
     parser.add_argument("--temperature",    type=float, default=0.0)
     parser.add_argument("--n-runs",         type=int,   default=1)
-    parser.add_argument("--icl-format",     default="text", choices=["text", "json"])
+    parser.add_argument("--icl-format",     default="text",
+                        choices=["text", "json", "narrative"],
+                        help="ICL corpus form: text=family_tree_corpus.txt, json=family_tree.json, narrative=family_tree_narrative.txt")
+    parser.add_argument("--corpus-path",    default=None,
+                        help="Override ICL corpus path (e.g. variants/alex/family_tree_corpus.txt)")
     parser.add_argument("--n-shot",         type=int,   default=0)
     parser.add_argument("--n-shot-seed",    type=int,   default=42)
     parser.add_argument("--print-prompt",   action="store_true")

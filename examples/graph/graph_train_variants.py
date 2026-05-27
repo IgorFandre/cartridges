@@ -1,22 +1,20 @@
 """
-Train 4 cartridges on family-tree variants that differ in exactly ONE swapped name.
-All 4 runs share:
-  - identical KV init (from variants/{first}/family_tree_corpus.txt)
-  - identical seed, lr, batch size, epochs, model
-  - identical train hyperparams
+Exp 2: train 4 cartridges on variants {alex, ben, carl, dan}.
 
-Datasets, output_dirs, and run names differ per variant.
+Shared across all 4 runs:
+  - KV init = variants/alex/family_tree_corpus.txt   (anchor: Alex)
+  - seed, lr, batch size, epochs, model
+  - masked-reasoning loss (loss only on final letter token)
+
+Per-variant differences: train data (variants/<v>/train_mc.parquet) and
+eval data (variants/<v>/test_mc.parquet).
 
 Run `examples/graph/generate_tree_variants.py` first.
 
-Usage (single GPU, sequential 4 runs):
-    python examples/graph/graph_train_variants.py
-
-Single variant (override via env):
+Usage:
+    python examples/graph/graph_train_variants.py            # all 4 sequentially
     VARIANT_ONLY=alex python examples/graph/graph_train_variants.py
-
-Multi-GPU per variant (run 4 times manually):
-    VARIANT_ONLY=alex torchrun --standalone --nproc_per_node=2 examples/graph/graph_train_variants.py
+    VARIANT_ONLY=ben  torchrun --standalone --nproc_per_node=2 examples/graph/graph_train_variants.py
 """
 import json
 import os
@@ -27,7 +25,8 @@ import pydrantic
 from cartridges.initialization import KVFromText
 from cartridges.train import TrainConfig, GenerationEvalConfig
 from cartridges.models import HFModelConfig, FlexQwen3ForCausalLM
-from cartridges.datasets import DataSource, TrainDataset
+from cartridges.datasets import DataSource
+from examples.graph.masked_answer_dataset import MaskedAnswerTrainDataset
 from examples.graph.graph_mc_eval import GraphMCEvalDataset
 
 VARIANTS_ROOT = Path(__file__).parent / "variants"
@@ -40,11 +39,13 @@ if not META_PATH.exists():
 
 meta = json.loads(META_PATH.read_text())
 VARIANTS = [v.lower() for v in meta["variants"]]
+ANCHOR = "alex"
+assert ANCHOR in VARIANTS, f"anchor {ANCHOR!r} not in variants {VARIANTS}"
 
-# Shared KV init: corpus of variant #1. Identical for all 4 runs.
-INIT_CORPUS = VARIANTS_ROOT / VARIANTS[0] / "family_tree_corpus.txt"
+# Shared KV init: Alex corpus, identical for all 4 runs.
+INIT_CORPUS = VARIANTS_ROOT / ANCHOR / "family_tree_corpus.txt"
 if not INIT_CORPUS.exists():
-    raise FileNotFoundError(f"{INIT_CORPUS} missing")
+    raise FileNotFoundError(f"{INIT_CORPUS} missing — generate variants first.")
 
 OUTPUT_BASE = Path(
     os.environ.get(
@@ -54,25 +55,6 @@ OUTPUT_BASE = Path(
 )
 
 SEED = 42
-# CoT enabled by default; disable with COT=0
-USE_COT = os.environ.get("COT", "1") != "0"
-
-if USE_COT:
-    TRAIN_PARQUET_NAME = "train_cot_mc.parquet"
-    TEST_PARQUET_NAME  = "test_cot_mc.parquet"
-    PACKED_SEQ_LEN     = 512
-    MAX_NEW_TOKENS     = 256
-    EVAL_BS            = 8
-    NAME_SUFFIX        = "cot"
-    EVAL_TAG           = "kinship_cot_mc_test"
-else:
-    TRAIN_PARQUET_NAME = "train_mc.parquet"
-    TEST_PARQUET_NAME  = "test_mc.parquet"
-    PACKED_SEQ_LEN     = 256
-    MAX_NEW_TOKENS     = 8
-    EVAL_BS            = 16
-    NAME_SUFFIX        = "ntp"
-    EVAL_TAG           = "kinship_mc_test"
 
 
 def build_config(variant: str) -> TrainConfig:
@@ -90,10 +72,10 @@ def build_config(variant: str) -> TrainConfig:
         lr=2e-2,
         epochs=20,
         global_batch_size=32,
-        dataset=TrainDataset.Config(
-            data_sources=[DataSource(path=str(variant_dir / TRAIN_PARQUET_NAME), type="local")],
+        dataset=MaskedAnswerTrainDataset.Config(
+            data_sources=[DataSource(path=str(variant_dir / "train_mc.parquet"), type="local")],
             targets="tokens",
-            packed_seq_length=PACKED_SEQ_LEN,
+            packed_seq_length=1024,
             packing_mode="pad",
         ),
         generate_eval_every_n_steps=100,
@@ -101,20 +83,20 @@ def build_config(variant: str) -> TrainConfig:
             GenerationEvalConfig(
                 dataset=GraphMCEvalDataset.Config(
                     data_source=DataSource(
-                        path=str(variant_dir / TEST_PARQUET_NAME),
+                        path=str(variant_dir / "test_mc.parquet"),
                         type="local",
                     ),
-                    cot=USE_COT,
+                    cot=True,
                 ),
-                name_for_wandb=f"{EVAL_TAG}_{variant}",
-                generate_max_new_tokens=MAX_NEW_TOKENS,
-                batch_size=EVAL_BS,
+                name_for_wandb=f"kinship_mc_test_{variant}",
+                generate_max_new_tokens=256,
+                batch_size=8,
                 temperature=0.0,
             )
         ],
         save_every_n_steps=200,
-        output_dir=str(OUTPUT_BASE / NAME_SUFFIX / variant),
-        name=f"graph-variant-{NAME_SUFFIX}-{variant}",
+        output_dir=str(OUTPUT_BASE / variant),
+        name=f"graph-variant-masked-{variant}",
         distributed_backend="gloo",
     )
 

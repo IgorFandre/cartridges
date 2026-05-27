@@ -1,0 +1,412 @@
+{
+  "people": [
+    {
+      "name": "Alex",
+      "gender": "male"
+    },
+    {
+      "name": "Karen",
+      "gender": "female"
+    },
+    {
+      "name": "David",
+      "gender": "male"
+    },
+    {
+      "name": "Stephanie",
+      "gender": "female"
+    },
+    {
+      "name": "Kenneth",
+      "gender": "male"
+    },
+    {
+      "name": "Jessica",
+      "gender": "female"
+    },
+    {
+      "name": "Linda",
+      "gender": "female"
+    },
+    {
+      "name": "Melissa",
+      "gender": "female"
+    },
+    {
+      "name": "Edward",
+      "gender": "male"
+    },
+    {
+      "name": "Jennifer",
+      "gender": "female"
+    },
+    {
+      "name": "Mark",
+      "gender": "male"
+    },
+    {
+      "name": "Emily",
+      "gender": "female"
+    },
+    {
+      "name": "Donna",
+      "gender": "female"
+    },
+    {
+      "name": "Carol",
+      "gender": "female"
+    },
+    {
+      "name": "Daniel",
+      "gender": "male"
+    },
+    {
+      "name": "Andrew",
+      "gender": "male"
+    },
+    {
+      "name": "Matthew",
+      "gender": "male"
+    },
+    {
+      "name": "Donald",
+      "gender": "male"
+    },
+    {
+      "name": "Nancy",
+      "gender": "female"
+    },
+    {
+      "name": "Ashley",
+      "gender": "female"
+    },
+    {
+      "name": "Sandra",
+      "gender": "female"
+    },
+    {
+      "name": "Paul",
+      "gender": "male"
+    },
+    {
+      "name": "John",
+      "gender": "male"
+    },
+    {
+      "name": "Patricia",
+      "gender": "female"
+    },
+    {
+      "name": "Amanda",
+      "gender": "female"
+    },
+    {
+      "name": "Betty",
+      "gender": "female"
+    },
+    {
+      "name": "Anthony",
+      "gender": "male"
+    },
+    {
+      "name": "Kevin",
+      "gender": "male"
+    },
+    {
+      "name": "Richard",
+      "gender": "male"
+    },
+    {
+      "name": "Susan",
+      "gender": "female"
+    },
+    {
+      "name": "Barbara",
+      "gender": "female"
+    },
+    {
+      "name": "Charles",
+      "gender": "male"
+    },
+    {
+      "name": "Robert",
+      "gender": "male"
+    },
+    {
+      "name": "Deborah",
+      "gender": "female"
+    },
+    {
+      "name": "Brian",
+      "gender": "male"
+    },
+    {
+      "name": "Lisa",
+      "gender": "female"
+    },
+    {
+      "name": "William",
+      "gender": "male"
+    },
+    {
+      "name": "George",
+      "gender": "male"
+    },
+    {
+      "name": "Joseph",
+      "gender": "male"
+    },
+    {
+      "name": "Dorothy",
+      "gender": "female"
+    }
+  ],
+  "parent_child": [
+    {
+      "parent": "Alex",
+      "child": "Kenneth"
+    },
+    {
+      "parent": "Karen",
+      "child": "Kenneth"
+    },
+    {
+      "parent": "Alex",
+      "child": "Jessica"
+    },
+    {
+      "parent": "Karen",
+      "child": "Jessica"
+    },
+    {
+      "parent": "Alex",
+      "child": "Linda"
+    },
+    {
+      "parent": "Karen",
+      "child": "Linda"
+    },
+    {
+      "parent": "David",
+      "child": "Jennifer"
+    },
+    {
+      "parent": "Stephanie",
+      "child": "Jennifer"
+    },
+    {
+      "parent": "David",
+      "child": "Mark"
+    },
+    {
+      "parent": "Stephanie",
+      "child": "Mark"
+    },
+    {
+      "parent": "Kenneth",
+      "child": "Emily"
+    },
+    {
+      "parent": "Melissa",
+      "child": "Emily"
+    },
+    {
+      "parent": "Kenneth",
+      "child": "Donna"
+    },
+    {
+      "parent": "Melissa",
+      "child": "Donna"
+    },
+    {
+      "parent": "Kenneth",
+      "child": "Carol"
+    },
+    {
+      "parent": "Melissa",
+      "child": "Carol"
+    },
+    {
+      "parent": "Edward",
+      "child": "Matthew"
+    },
+    {
+      "parent": "Linda",
+      "child": "Matthew"
+    },
+    {
+      "parent": "Edward",
+      "child": "Donald"
+    },
+    {
+      "parent": "Linda",
+      "child": "Donald"
+    },
+    {
+      "parent": "Daniel",
+      "child": "Sandra"
+    },
+    {
+      "parent": "Emily",
+      "child": "Sandra"
+    },
+    {
+      "parent": "Daniel",
+      "child": "Paul"
+    },
+    {
+      "parent": "Emily",
+      "child": "Paul"
+    },
+    {
+      "parent": "Andrew",
+      "child": "Amanda"
+    },
+    {
+      "parent": "Donna",
+      "child": "Amanda"
+    },
+    {
+      "parent": "Andrew",
+      "child": "Betty"
+    },
+    {
+      "parent": "Donna",
+      "child": "Betty"
+    },
+    {
+      "parent": "Andrew",
+      "child": "Anthony"
+    },
+    {
+      "parent": "Donna",
+      "child": "Anthony"
+    },
+    {
+      "parent": "Matthew",
+      "child": "Richard"
+    },
+    {
+      "parent": "Nancy",
+      "child": "Richard"
+    },
+    {
+      "parent": "Matthew",
+      "child": "Susan"
+    },
+    {
+      "parent": "Nancy",
+      "child": "Susan"
+    },
+    {
+      "parent": "Matthew",
+      "child": "Barbara"
+    },
+    {
+      "parent": "Nancy",
+      "child": "Barbara"
+    },
+    {
+      "parent": "Donald",
+      "child": "Robert"
+    },
+    {
+      "parent": "Ashley",
+      "child": "Robert"
+    },
+    {
+      "parent": "Donald",
+      "child": "Deborah"
+    },
+    {
+      "parent": "Ashley",
+      "child": "Deborah"
+    },
+    {
+      "parent": "John",
+      "child": "Lisa"
+    },
+    {
+      "parent": "Sandra",
+      "child": "Lisa"
+    },
+    {
+      "parent": "John",
+      "child": "William"
+    },
+    {
+      "parent": "Sandra",
+      "child": "William"
+    },
+    {
+      "parent": "John",
+      "child": "George"
+    },
+    {
+      "parent": "Sandra",
+      "child": "George"
+    }
+  ],
+  "spouses": [
+    {
+      "a": "Alex",
+      "b": "Karen"
+    },
+    {
+      "a": "David",
+      "b": "Stephanie"
+    },
+    {
+      "a": "Kenneth",
+      "b": "Melissa"
+    },
+    {
+      "a": "Linda",
+      "b": "Edward"
+    },
+    {
+      "a": "Emily",
+      "b": "Daniel"
+    },
+    {
+      "a": "Donna",
+      "b": "Andrew"
+    },
+    {
+      "a": "Matthew",
+      "b": "Nancy"
+    },
+    {
+      "a": "Donald",
+      "b": "Ashley"
+    },
+    {
+      "a": "Sandra",
+      "b": "John"
+    },
+    {
+      "a": "Paul",
+      "b": "Patricia"
+    },
+    {
+      "a": "Amanda",
+      "b": "Kevin"
+    },
+    {
+      "a": "Barbara",
+      "b": "Charles"
+    },
+    {
+      "a": "Deborah",
+      "b": "Brian"
+    },
+    {
+      "a": "Lisa",
+      "b": "Joseph"
+    },
+    {
+      "a": "William",
+      "b": "Dorothy"
+    }
+  ]
+}

@@ -22,17 +22,22 @@ from cartridges.initialization.tokenization_utils import (
 )
 
 
-_LETTER_RE = re.compile(r"(?:answer\s*[:\-]?\s*)?\b([A-E])\b\.?", re.IGNORECASE)
-_THINK_RE  = re.compile(r"<think>.*?</think>", re.DOTALL)
+_LETTER_RE_5 = re.compile(r"(?:answer\s*[:\-]?\s*)?\b([A-E])\b\.?", re.IGNORECASE)
+_LETTER_RE_3 = re.compile(r"(?:answer\s*[:\-]?\s*)?\b([A-C])\b\.?", re.IGNORECASE)
+_THINK_RE    = re.compile(r"<think>.*?</think>", re.DOTALL)
 
 
-def extract_letter(text: str) -> str:
-    """Pull A-E. Strips <think>...</think> first, then matches first letter token."""
+def extract_letter(text: str, n_options: int = 5) -> str:
+    """Pull a valid option letter (A..A+n-1) from `text`.
+    Strips <think>...</think> first, then matches first letter token.
+    """
     s = _THINK_RE.sub("", text or "").strip()
-    m = _LETTER_RE.search(s)
+    rx = _LETTER_RE_3 if n_options == 3 else _LETTER_RE_5
+    m = rx.search(s)
     if m:
         return m.group(1).upper()
-    m2 = re.search(r"[A-Ea-e]", s)
+    valid = "ABCDE"[:n_options]
+    m2 = re.search(f"[{valid}{valid.lower()}]", s)
     return m2.group(0).upper() if m2 else ""
 
 
@@ -61,7 +66,8 @@ class GraphMCEvalDataset(GenerateEvalDataset):
         # NOTE: chat template with enable_thinking=False already injects an empty
         # <think>\n\n</think> block — no manual append needed.
 
-        gold_letter = extract_letter(convo.messages[-1].content)
+        n_options = int((convo.metadata or {}).get("n_options", 5))
+        gold_letter = extract_letter(convo.messages[-1].content, n_options=n_options)
 
         return GenerateEvalDatasetElement(
             input_ids=input_ids,
@@ -71,6 +77,7 @@ class GraphMCEvalDataset(GenerateEvalDataset):
             metadata={
                 "idx": index,
                 "gold_letter": gold_letter,
+                "n_options": n_options,
                 "raw_target": convo.messages[-1].content,
                 **(convo.metadata or {}),
             },
@@ -79,7 +86,9 @@ class GraphMCEvalDataset(GenerateEvalDataset):
     def score(
         self, pred: str, answer: str, convo_id: str
     ) -> Tuple[Dict[str, float], Dict[str, Any]]:
-        pred_letter = extract_letter(pred)
+        # n_options stored on the element metadata but score() only sees pred/answer.
+        # Fall back to 5-option regex (matches A-E); answer letter constrains validity.
+        pred_letter = extract_letter(pred, n_options=5)
         gold_letter = (answer or "").strip().upper()
         correct = pred_letter == gold_letter and gold_letter in "ABCDE"
         return (

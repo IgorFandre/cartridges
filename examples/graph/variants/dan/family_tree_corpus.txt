@@ -1,0 +1,25 @@
+Family tree:
+Dan is married to Karen.
+Dan and Karen have children: Jessica, Kenneth, Linda.
+David is married to Stephanie.
+David and Stephanie have children: Jennifer, Mark.
+Kenneth is married to Melissa.
+Kenneth and Melissa have children: Carol, Donna, Emily.
+Linda is married to Edward.
+Linda and Edward have children: Donald, Matthew.
+Emily is married to Daniel.
+Emily and Daniel have children: Paul, Sandra.
+Donna is married to Andrew.
+Donna and Andrew have children: Amanda, Anthony, Betty.
+Matthew is married to Nancy.
+Matthew and Nancy have children: Barbara, Richard, Susan.
+Donald is married to Ashley.
+Donald and Ashley have children: Deborah, Robert.
+Sandra is married to John.
+Sandra and John have children: George, Lisa, William.
+Paul is married to Patricia.
+Amanda is married to Kevin.
+Barbara is married to Charles.
+Deborah is married to Brian.
+Lisa is married to Joseph.
+William is married to Dorothy.

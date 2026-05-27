@@ -1,0 +1,13 @@
+{
+  "target_original_name": "Steven",
+  "variants": [
+    "Alex",
+    "Ben",
+    "Carl",
+    "Dan"
+  ],
+  "seed": 42,
+  "train_frac": 0.8,
+  "neg_frac": 0.3,
+  "note": "Alex is the canonical/anchor variant. Init cache for exp2 uses Alex corpus for all variants."
+}

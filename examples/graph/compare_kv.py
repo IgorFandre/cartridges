@@ -45,6 +45,22 @@ def pair_metrics(a: torch.Tensor, b: torch.Tensor) -> dict:
     return {"cos": cos, "l2": l2, "max_abs": max_abs, "rel_l2": rel}
 
 
+def per_slot_metrics(a: torch.Tensor, b: torch.Tensor) -> tuple[np.ndarray, np.ndarray]:
+    """
+    a, b: (1, n_heads, n_tokens, head_dim).
+    Pool heads + head_dim into a single vector per slot, then compute
+    cosine sim and relative-L2 per slot. Returns (cos[T], rel_l2[T]).
+    """
+    # flatten heads & head_dim per slot → (n_tokens, n_heads * head_dim)
+    a2 = a.squeeze(0).permute(1, 0, 2).reshape(a.shape[2], -1)
+    b2 = b.squeeze(0).permute(1, 0, 2).reshape(b.shape[2], -1)
+    cos = torch.nn.functional.cosine_similarity(a2, b2, dim=-1).cpu().numpy()
+    diff = (a2 - b2).norm(dim=-1)
+    norm_a = a2.norm(dim=-1).clamp_min(1e-12)
+    rel = (diff / norm_a).cpu().numpy()
+    return cos, rel
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--ckpt-root", type=str,
@@ -57,6 +73,11 @@ def main():
                    default=str(Path(__file__).parent / "variants"))
     p.add_argument("--out-dir", type=str,
                    default=str(Path(__file__).parent / "kv_compare_out"))
+    p.add_argument("--per-slot", action="store_true",
+                   help="Also produce per-(layer, slot) heatmaps and stats.")
+    p.add_argument("--name-positions", type=str, default=None,
+                   help="JSON list of slot indices that hold the swapped name in the init corpus. "
+                        "If given, prints stats inside vs outside these slots.")
     args = p.parse_args()
 
     ckpt_root = Path(args.ckpt_root)
@@ -140,6 +161,73 @@ def main():
     }
     (out_dir / "compare_summary.json").write_text(json.dumps(summary, indent=2))
     print(f"\nsaved → {out_dir / 'compare_summary.json'}")
+
+    # ── per-slot × layer analysis ──────────────────────────────────────────
+    if args.per_slot:
+        n_tokens = caches[variants[0]][0][0].shape[2]
+        print(f"\n=== per-slot × layer  (n_tokens={n_tokens}) ===")
+        name_pos = None
+        if args.name_positions:
+            name_pos = json.loads(args.name_positions)
+            print(f"name slots: {name_pos}")
+
+        per_slot_summary: dict[str, dict] = {}
+        for pi, (a, b) in enumerate(pairs):
+            Ka, Va = caches[a]
+            Kb, Vb = caches[b]
+            # (n_layers, n_tokens) for cos and rel_l2, K and V
+            K_cos = np.zeros((n_layers, n_tokens))
+            K_rel = np.zeros((n_layers, n_tokens))
+            V_cos = np.zeros((n_layers, n_tokens))
+            V_rel = np.zeros((n_layers, n_tokens))
+            for li in range(n_layers):
+                kc, kr = per_slot_metrics(Ka[li], Kb[li])
+                vc, vr = per_slot_metrics(Va[li], Vb[li])
+                K_cos[li] = kc; K_rel[li] = kr
+                V_cos[li] = vc; V_rel[li] = vr
+
+            per_slot_summary[f"{a}|{b}"] = {
+                "K_cos_mean": float(K_cos.mean()),
+                "K_rel_l2_mean": float(K_rel.mean()),
+                "V_cos_mean": float(V_cos.mean()),
+                "V_rel_l2_mean": float(V_rel.mean()),
+            }
+
+            if name_pos is not None:
+                mask = np.zeros(n_tokens, dtype=bool)
+                mask[name_pos] = True
+                for tag, arr in [("V_rel", V_rel), ("K_rel", K_rel)]:
+                    inside = arr[:, mask].mean() if mask.any() else 0.0
+                    outside = arr[:, ~mask].mean() if (~mask).any() else 0.0
+                    ratio = inside / (outside + 1e-12)
+                    print(f"  {a}|{b}  {tag}: name_slots={inside:.4f}  other={outside:.4f}  ratio={ratio:.2f}")
+
+            # heatmaps per-pair: layer × slot
+            for kv_tag, arr, m in [
+                ("V_cos", V_cos, "cos"), ("V_rel_l2", V_rel, "rel_l2"),
+                ("K_cos", K_cos, "cos"), ("K_rel_l2", K_rel, "rel_l2"),
+            ]:
+                fig, ax = plt.subplots(figsize=(max(8, n_tokens * 0.04), max(4, n_layers * 0.2)))
+                im = ax.imshow(arr, aspect="auto",
+                               cmap=("viridis" if m == "rel_l2" else "RdBu_r"),
+                               vmin=(0.0 if m == "rel_l2" else None),
+                               vmax=(None if m == "rel_l2" else 1.0))
+                if name_pos is not None:
+                    for s in name_pos:
+                        ax.axvline(s, color="red", linewidth=0.5, alpha=0.5)
+                ax.set_xlabel("slot (cartridge position)")
+                ax.set_ylabel("layer")
+                ax.set_title(f"{a} vs {b}  {kv_tag}")
+                fig.colorbar(im, ax=ax)
+                fig.tight_layout()
+                out = out_dir / f"slot_{a}_{b}_{kv_tag}.png"
+                fig.savefig(out, dpi=120)
+                plt.close(fig)
+                print(f"  per-slot heatmap → {out}")
+
+        (out_dir / "per_slot_summary.json").write_text(
+            json.dumps(per_slot_summary, indent=2)
+        )
 
     # heatmaps: pairs × layers
     pair_labels = [f"{a}|{b}" for a, b in pairs]
