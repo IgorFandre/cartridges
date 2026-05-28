@@ -70,7 +70,7 @@ def build_config(variant: str) -> TrainConfig:
         ),
         seed=SEED,
         lr=2e-2,
-        epochs=20,
+        epochs=10,
         global_batch_size=32,
         dataset=MaskedAnswerTrainDataset.Config(
             data_sources=[DataSource(path=str(variant_dir / "train_mc.parquet"), type="local")],
@@ -78,7 +78,7 @@ def build_config(variant: str) -> TrainConfig:
             packed_seq_length=1024,
             packing_mode="pad",
         ),
-        generate_eval_every_n_steps=100,
+        generate_eval_every_n_steps=150,
         generate_evals=[
             GenerationEvalConfig(
                 dataset=GraphMCEvalDataset.Config(

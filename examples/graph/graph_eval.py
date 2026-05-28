@@ -36,13 +36,15 @@ CORPUS_JSON_PATH = OUTPUT_DIR / "family_tree.json"
 
 TEST_MC_PARQUET     = OUTPUT_DIR / "test_mc.parquet"
 TEST_MC_META        = OUTPUT_DIR / "test_meta_mc.json"
-TEST_COT_MC_PARQUET = OUTPUT_DIR / "test_cot_mc.parquet"
-TEST_COT_MC_META    = OUTPUT_DIR / "test_meta_cot_mc.json"
+# Legacy CoT-MC files (removed in current pipeline) — kept as aliases for
+# backward compat with existing callsites; route them to test_mc.parquet.
+TEST_COT_MC_PARQUET = TEST_MC_PARQUET
+TEST_COT_MC_META    = TEST_MC_META
 
 TRAIN_MC_PARQUET     = OUTPUT_DIR / "train_mc.parquet"
 TRAIN_MC_META        = OUTPUT_DIR / "train_meta_mc.json"
-TRAIN_COT_MC_PARQUET = OUTPUT_DIR / "train_cot_mc.parquet"
-TRAIN_COT_MC_META    = OUTPUT_DIR / "train_meta_cot_mc.json"
+TRAIN_COT_MC_PARQUET = TRAIN_MC_PARQUET
+TRAIN_COT_MC_META    = TRAIN_MC_META
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
@@ -430,12 +432,10 @@ def main():
 
     if args.variant_dir:
         vd = Path(args.variant_dir)
-        if cot_mode:
-            args._test_parquet = vd / "test_cot_mc.parquet"
-            args._test_meta    = vd / "test_meta_cot_mc.json"
-        else:
-            args._test_parquet = vd / "test_mc.parquet"
-            args._test_meta    = vd / "test_meta_mc.json"
+        # Pipeline now produces only test_mc.parquet (assistant = letter only,
+        # reasoning is generated at eval time via cot=True chat template).
+        args._test_parquet = vd / "test_mc.parquet"
+        args._test_meta    = vd / "test_meta_mc.json"
     elif args.test_parquet:
         args._test_parquet = Path(args.test_parquet)
         if args.test_meta:
