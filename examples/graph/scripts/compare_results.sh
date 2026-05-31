@@ -24,6 +24,7 @@ ROOT="$(cd "$GRAPH/../.." && pwd)"         # repo root
 cd "$ROOT"
 
 export CARTRIDGES_DIR="${CARTRIDGES_DIR:-$ROOT}"
+export CARTRIDGES_OUTPUT_DIR="${CARTRIDGES_OUTPUT_DIR:-$ROOT/outputs_graph}"  # cartridges/__init__ requires this
 export CARTRIDGES_OUTPUT_DIR_GRAPH="${CARTRIDGES_OUTPUT_DIR_GRAPH:-$ROOT/outputs_graph}"
 RES="${RES:-$ROOT/outputs_graph/exp2_stability}"
 ALEX_RUNS="${ALEX_RUNS:-5}"

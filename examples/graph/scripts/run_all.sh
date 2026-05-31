@@ -30,6 +30,7 @@ cd "$ROOT"
 : "${CARTRIDGES_DIR:=$ROOT}"
 : "${OUT:=$ROOT/outputs_graph}"
 export CARTRIDGES_DIR
+export CARTRIDGES_OUTPUT_DIR="${CARTRIDGES_OUTPUT_DIR:-$OUT}"   # required by cartridges/__init__
 export CARTRIDGES_OUTPUT_DIR_GRAPH="$OUT"   # paths.py routes train output here
 : "${CARTRIDGES_WANDB_PROJECT:=cartridges-graph}"
 : "${CARTRIDGES_WANDB_ENTITY:=local}"
