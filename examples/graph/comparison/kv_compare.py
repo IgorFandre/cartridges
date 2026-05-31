@@ -124,6 +124,8 @@ def slot_localization(m_K: dict, m_V: dict, name_slots: list[int], n_tokens: int
     slots are given) the name-slot-vs-other ratio — the signal that tells you
     a swapped entity is localized to specific cartridge positions.
     """
+    # compressed caches have fewer slots than the full corpus → drop OOR slots
+    name_slots = [s for s in name_slots if 0 <= s < n_tokens]
     out: dict = {}
     for tag, m in (("K", m_K), ("V", m_V)):
         slot_angle = m["angle_deg"].mean(axis=0)        # (T,)
