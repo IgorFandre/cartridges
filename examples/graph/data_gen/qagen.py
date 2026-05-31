@@ -38,7 +38,7 @@ import random
 from pathlib import Path
 
 from cartridges.structs import Conversation, write_conversations
-from examples.graph.family_tree import FamilyTree
+from examples.graph.data_gen.family_tree import FamilyTree
 
 # ── Template registries ─────────────────────────────────────────────────────
 CAT1_SINGLE = [
@@ -475,8 +475,8 @@ def main():
                     help="Cat-4 verification questions per (person, rel)")
     args = ap.parse_args()
 
-    here = Path(__file__).parent
-    tree_path = Path(args.tree) if args.tree else here / "family_tree.json"
+    from examples.graph.paths import BASE_TREE_JSON
+    tree_path = Path(args.tree) if args.tree else BASE_TREE_JSON
     out_dir = Path(args.out_dir) if args.out_dir else tree_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 

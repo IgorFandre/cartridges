@@ -131,8 +131,8 @@ if __name__ == "__main__":
     ap.add_argument("--max-kids",    type=int,   default=2)
     ap.add_argument("--founders",    type=int,   default=2)
     ap.add_argument("--spouse-prob", type=float, default=0.7)
-    ap.add_argument("--out",         type=str,
-                    default=str(Path(__file__).parent / "family_tree.json"))
+    from examples.graph.paths import BASE_TREE_JSON
+    ap.add_argument("--out",         type=str, default=str(BASE_TREE_JSON))
     args = ap.parse_args()
 
     tree = generate_family_tree(

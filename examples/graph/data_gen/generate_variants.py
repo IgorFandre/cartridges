@@ -25,14 +25,15 @@ import json
 from pathlib import Path
 
 from cartridges.structs import write_conversations
-from examples.graph.family_tree import FamilyTree
-from examples.graph.graph_qagen import (
+from examples.graph.data_gen.family_tree import FamilyTree
+from examples.graph.data_gen.qagen import (
     build_rel_lookup, build_all_qa, build_mc_record,
     qa_to_mc_conversation, split_by_person,
 )
+from examples.graph.paths import BASE_TREE_JSON, VARIANTS_DIR
 
-BASE_TREE = Path(__file__).parent / "family_tree.json"
-OUT_ROOT = Path(__file__).parent / "variants"
+BASE_TREE = BASE_TREE_JSON
+OUT_ROOT = VARIANTS_DIR
 
 
 def swap_name_in_tree(tree_data: dict, old: str, new: str) -> dict:

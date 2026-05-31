@@ -263,8 +263,7 @@ class FamilyTree:
 
 if __name__ == "__main__":
     # Quick smoke test
-    from pathlib import Path
-    tree_path = Path(__file__).parent / "family_tree.json"
+    from examples.graph.paths import BASE_TREE_JSON as tree_path
     if not tree_path.exists():
         print("family_tree.json not found. Run generate_tree.py first.")
         exit(1)

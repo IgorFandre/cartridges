@@ -14,7 +14,7 @@ import json
 import random
 from pathlib import Path
 
-from examples.graph.family_tree import FamilyTree
+from examples.graph.data_gen.family_tree import FamilyTree
 
 
 def to_narrative(tree: FamilyTree, seed: int = 0) -> str:
@@ -78,8 +78,8 @@ def to_narrative(tree: FamilyTree, seed: int = 0) -> str:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tree", type=str,
-                    default=str(Path(__file__).parent / "family_tree.json"))
+    from examples.graph.paths import BASE_TREE_JSON
+    ap.add_argument("--tree", type=str, default=str(BASE_TREE_JSON))
     ap.add_argument("--out-dir", type=str, default=None,
                     help="Default: directory of --tree.")
     ap.add_argument("--seed", type=int, default=0)

@@ -30,21 +30,20 @@ from transformers import AutoTokenizer
 
 from cartridges.structs import read_conversations
 
-OUTPUT_DIR = Path(__file__).parent
-CORPUS_PATH      = OUTPUT_DIR / "family_tree_corpus.txt"
-CORPUS_JSON_PATH = OUTPUT_DIR / "family_tree.json"
+from examples.graph.paths import (
+    BASE_CORPUS, BASE_TREE_JSON, BASE_NARRATIVE,
+    BASE_TEST_PARQUET, BASE_TEST_META,
+    BASE_TRAIN_PARQUET, BASE_TRAIN_META,
+)
 
-TEST_MC_PARQUET     = OUTPUT_DIR / "test_mc.parquet"
-TEST_MC_META        = OUTPUT_DIR / "test_meta_mc.json"
-# Legacy CoT-MC files (removed in current pipeline) — kept as aliases for
-# backward compat with existing callsites; route them to test_mc.parquet.
-TEST_COT_MC_PARQUET = TEST_MC_PARQUET
-TEST_COT_MC_META    = TEST_MC_META
-
-TRAIN_MC_PARQUET     = OUTPUT_DIR / "train_mc.parquet"
-TRAIN_MC_META        = OUTPUT_DIR / "train_meta_mc.json"
-TRAIN_COT_MC_PARQUET = TRAIN_MC_PARQUET
-TRAIN_COT_MC_META    = TRAIN_MC_META
+# Base-tree defaults (override on the CLI for variants).
+CORPUS_PATH      = BASE_CORPUS
+CORPUS_JSON_PATH = BASE_TREE_JSON
+NARRATIVE_PATH   = BASE_NARRATIVE
+TEST_MC_PARQUET  = BASE_TEST_PARQUET
+TEST_MC_META     = BASE_TEST_META
+TRAIN_MC_PARQUET = BASE_TRAIN_PARQUET
+TRAIN_MC_META    = BASE_TRAIN_META
 
 MODEL_CONFIGS = {
     "qwen1.7b": "Qwen/Qwen3-1.7B",
@@ -214,14 +213,14 @@ def run_icl_eval(args) -> List[dict]:
     elif args.icl_format == "json":
         corpus_text = CORPUS_JSON_PATH.read_text()
     elif args.icl_format == "narrative":
-        corpus_text = (OUTPUT_DIR / "family_tree_narrative.txt").read_text()
+        corpus_text = NARRATIVE_PATH.read_text()
     else:
         corpus_text = CORPUS_PATH.read_text()
 
     # Few-shot block (drawn from corresponding MC train set)
     few_shot_block = ""
-    train_pq        = TRAIN_COT_MC_PARQUET if args._cot else TRAIN_MC_PARQUET
-    train_meta_path = TRAIN_COT_MC_META    if args._cot else TRAIN_MC_META
+    train_pq        = TRAIN_MC_PARQUET
+    train_meta_path = TRAIN_MC_META
     if args.n_shot > 0 and train_pq.exists() and train_meta_path.exists():
         import random
         rng = random.Random(args.n_shot_seed)
@@ -446,8 +445,8 @@ def main():
                 stem.replace("test_", "test_meta_") + ".json"
             )
     elif cot_mode:
-        args._test_parquet = TEST_COT_MC_PARQUET
-        args._test_meta    = TEST_COT_MC_META
+        args._test_parquet = TEST_MC_PARQUET
+        args._test_meta    = TEST_MC_META
     else:
         args._test_parquet = TEST_MC_PARQUET
         args._test_meta    = TEST_MC_META
