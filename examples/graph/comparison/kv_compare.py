@@ -145,11 +145,25 @@ def slot_localization(m_K: dict, m_V: dict, name_slots: list[int], n_tokens: int
 
 
 # ── Name-token slot detection ────────────────────────────────────────────────
-def find_name_slots(tokenizer, corpus_path: Path, name: str) -> list[int]:
-    """Slot indices in the (tokenized) corpus where `name` appears as a single
-    token. Used to mark/localize the swapped entity."""
+def find_name_slots(
+    tokenizer, corpus_path: Path, name: str, max_tokens: int | None = None
+) -> list[int]:
+    """Slot indices in the CACHE where `name` appears as a single token.
+
+    Must index the same way the cache is built: KVFromText wraps the corpus in
+    a chat template (`<|im_start|>system\\n` … prefix), so the cache slots are
+    offset from a bare `add_special_tokens=False` tokenization. We reproduce
+    KVFromText's exact tokenization here so slot i == cache slot i — otherwise
+    the name-slot mask lands `len(prefix)` positions short of the real names.
+    """
+    from cartridges.initialization.tokenization_utils import (
+        MODEL_TO_SYSTEM_PROMPT_TOKENIZER,
+    )
+
     text = Path(corpus_path).read_text()
-    ids = tokenizer.encode(text, add_special_tokens=False)
+    fn = MODEL_TO_SYSTEM_PROMPT_TOKENIZER[tokenizer.name_or_path.lower()]
+    ids = fn(tokenizer=tokenizer, content=text, max_tokens=max_tokens).squeeze(0).tolist()
+
     name_id_sets = [
         tokenizer.encode(c, add_special_tokens=False) for c in (name, " " + name)
     ]

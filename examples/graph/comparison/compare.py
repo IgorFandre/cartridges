@@ -136,7 +136,7 @@ def build_pair_slots(args, labels: list[str]):
         for label in labels:
             name = cap.get(label, label.capitalize())
             corpus = resolve_init_corpus(label, args)
-            per_label[label] = kvc.find_name_slots(tokenizer, corpus, name)
+            per_label[label] = kvc.find_name_slots(tokenizer, corpus, name, args.max_tokens)
             print(f"  name slots {label} ({name}): {per_label[label][:6]}"
                   f"{'…' if len(per_label[label]) > 6 else ''}")
         # pair mask = union of the two variants' name slots
@@ -149,7 +149,7 @@ def build_pair_slots(args, labels: list[str]):
     corpus = Path(args.init_corpus)
     names = [n.strip() for n in args.localize_names.split(",") if n.strip()]
     slots = sorted(set().union(*[
-        set(kvc.find_name_slots(tokenizer, corpus, n)) for n in names
+        set(kvc.find_name_slots(tokenizer, corpus, n, args.max_tokens)) for n in names
     ]))
     print(f"  global name slots ({names}) in {corpus.name}: {slots[:8]}"
           f"{'…' if len(slots) > 8 else ''}")
