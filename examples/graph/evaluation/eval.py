@@ -55,8 +55,22 @@ VALID_LETTERS = ("A", "B", "C", "D", "E")
 
 # ── Letter extraction ────────────────────────────────────────────────────────
 def extract_letter(text: str, n_options: int = 5) -> str:
-    """Pull a valid option letter (A..A+n-1) from `text`. Strips <think>…</think> first."""
-    s = re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL).strip()
+    """Pull a valid option letter (A..A+n-1) from a model answer.
+
+    For CoT outputs the answer follows the reasoning block, so we scan only the
+    region after ``</think>``. An *unclosed* ``<think>`` means generation was
+    truncated before any answer was emitted → return "" (scored wrong, surfaced
+    as malformed by analyze.py). Reasoning prose is never scanned, so the
+    indefinite article "a" can no longer be mistaken for option A.
+    """
+    t = text or ""
+    if "</think>" in t:
+        region = t.rsplit("</think>", 1)[1]      # answer lives after the think block
+    elif "<think>" in t:
+        return ""                                 # truncated mid-reasoning, no answer
+    else:
+        region = t                                # non-CoT: output is the answer itself
+    s = region.strip()
     valid = "ABCDE"[:n_options]
     m = re.search(rf"(?:answer\s*[:\-]?\s*)?\b([{valid}])\b\.?", s, flags=re.IGNORECASE)
     if m:
@@ -404,7 +418,7 @@ def main():
     parser.add_argument("--checkpoint",     default=None, help="Path to .pt cache (cartridge modes)")
     parser.add_argument("--model",          default="qwen1.7b", choices=list(MODEL_CONFIGS.keys()))
     parser.add_argument("--max-new-tokens", type=int, default=None,
-                        help="Default: 8 for letter-only modes, 256 for CoT modes")
+                        help="Default: 8 for letter-only modes, 1024 for CoT modes")
     parser.add_argument("--batch-size",     type=int, default=8)
     parser.add_argument("--device",         default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output",         default=None, help="Save per-question results JSON")
@@ -452,7 +466,9 @@ def main():
         args._test_meta    = TEST_MC_META
 
     if args.max_new_tokens is None:
-        args.max_new_tokens = 256 if cot_mode else 8
+        # CoT kinship traces routinely exceed 256 tokens; 256 truncated ~97% of
+        # generations mid-reasoning (no answer emitted). 1024 lets nearly all finish.
+        args.max_new_tokens = 1024 if cot_mode else 8
 
     if args.mode in ("cartridge", "cartridge-cot"):
         assert args.checkpoint, f"--checkpoint required for {args.mode}"
