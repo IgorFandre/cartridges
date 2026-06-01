@@ -151,6 +151,11 @@ def run_cartridge_eval(args) -> List[dict]:
     meta   = json.loads(Path(args._test_meta).read_text())
     assert len(convos) == len(meta), "parquet and meta out of sync"
 
+    if args.limit is not None:
+        convos = convos[: args.limit]
+        meta   = meta[: args.limit]
+        print(f"--limit: evaluating first {len(convos)} items")
+
     results = []
     for i in tqdm(range(0, len(convos), args.batch_size), desc=f"{args.mode} eval"):
         batch_convos = convos[i : i + args.batch_size]
@@ -287,6 +292,11 @@ def run_icl_eval(args) -> List[dict]:
     convos = read_conversations(str(args._test_parquet))
     meta   = json.loads(Path(args._test_meta).read_text())
     assert len(convos) == len(meta), "parquet and meta out of sync"
+
+    if args.limit is not None:
+        convos = convos[: args.limit]
+        meta   = meta[: args.limit]
+        print(f"--limit: evaluating first {len(convos)} items")
 
     is_thinking_model = model_name.lower() in {m.lower() for m in MODELS_WITH_THINKING}
     kwargs = {}
@@ -432,6 +442,8 @@ def main():
     parser.add_argument("--n-shot",         type=int,   default=0)
     parser.add_argument("--n-shot-seed",    type=int,   default=42)
     parser.add_argument("--print-prompt",   action="store_true")
+    parser.add_argument("--limit",          type=int, default=None,
+                        help="Eval only the first N test items (smoke test)")
     parser.add_argument("--test-parquet",   default=None,
                         help="Override test parquet path (e.g. variants/ben/test_mc.parquet)")
     parser.add_argument("--test-meta",      default=None,
