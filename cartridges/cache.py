@@ -310,8 +310,12 @@ class TrainableCache(nn.Module):
         config = AttnConfig(n_layers=n_layers, n_heads=n_heads, head_dim=head_dim)
         # Here, num_tokens is inferred from trainable keys, but note that the total tokens may be different if fixed tokens exist.
         # The number of fixed tokens can be inferred from frozen_keys if available.
+        # frozen_keys[l] is (1, n_heads, num_frozen_tokens, head_dim) → the frozen
+        # token count is dim 2, NOT dim 1 (which is n_heads). Using .size(1) here
+        # mis-set num_frozen_tokens to n_heads, silently dropping the first n_heads
+        # trainable slots on reload.
         num_frozen_tokens = (
-            checkpoint["frozen_keys"][0].size(1) if checkpoint["frozen_keys"] else 0
+            checkpoint["frozen_keys"][0].size(2) if checkpoint["frozen_keys"] else 0
         )
 
         return cls(
