@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Compare already-trained stability cartridges with the unified compare CLI.
 #
-# Works against an existing results dir of trained runs (default the legacy
-# exp2_stability/ layout: alex_run{1..5}/, ben_on_alex_run1/, ben_on_ben_run1/,
-# each holding <timestamp>/<uuid>/cache_last.pt). find_cache_last rglobs, so the
-# pydrantic nesting is handled automatically.
+# Works against an existing results dir of trained runs (default exp4_stability/:
+# alex_run{1..5}/, ben_on_alex_run1/, ben_on_ben_run1/, each holding
+# <timestamp>/<uuid>/cache_last.pt). find_cache_last rglobs, so the pydrantic
+# nesting is handled automatically.
 #
 # Produces, under $RES:
 #   alex_stability_compare/   — 5 alex seeds, same data → run-to-run NOISE FLOOR
@@ -13,7 +13,7 @@
 #
 # Usage:
 #   bash examples/graph/scripts/compare_results.sh
-#   RES=outputs_graph/exp4_stability bash examples/graph/scripts/compare_results.sh
+#   RES=outputs_graph/exp4_stability bash examples/graph/scripts/compare_results.sh   # (default)
 #   ALEX_RUNS=5 bash examples/graph/scripts/compare_results.sh
 
 set -euo pipefail
@@ -26,7 +26,7 @@ cd "$ROOT"
 export CARTRIDGES_DIR="${CARTRIDGES_DIR:-$ROOT}"
 export CARTRIDGES_OUTPUT_DIR="${CARTRIDGES_OUTPUT_DIR:-$ROOT/outputs_graph}"  # cartridges/__init__ requires this
 export CARTRIDGES_OUTPUT_DIR_GRAPH="${CARTRIDGES_OUTPUT_DIR_GRAPH:-$ROOT/outputs_graph}"
-RES="${RES:-$ROOT/outputs_graph/exp2_stability}"
+RES="${RES:-$ROOT/outputs_graph/exp4_stability}"
 ALEX_RUNS="${ALEX_RUNS:-5}"
 
 [ -d "$RES" ] || { echo "results dir not found: $RES (set RES=...)"; exit 1; }

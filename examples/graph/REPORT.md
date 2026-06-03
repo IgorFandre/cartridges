@@ -9,8 +9,9 @@
 Обучаем cartridge — обучаемый KV-cache, накладываемый поверх замороженной модели Qwen3-1.7B — кодировать структуру семейного графа на 45 человек / 6 поколений и отвечать на вопросы о родстве. Три эксперимента:
 
 - **Exp 1.** Сравнение **инициализированных** caches между 4 вариантами графа (без обучения)
-- **Exp 2.** Обучение 4 cartridges от **общего** init на разных вариантах графа, сравнение обученных
+- **Exp 2.** 4 cartridges от **общего** Alex-init, каждый обучен на данных своего варианта → init **идентичен**, post-train различия идут **только** от train data. Два среза: trained-KV diff (где осело различие) + cross-variant eval (own-acc vs cross-acc как индикатор структурного обобщения)
 - **Exp 3.** ICL baseline (Qwen3-1.7B + corpus в prompt, без cartridge), 2 формата corpus
+- **Exp 4.** Stability / noise floor (32-slot картриджи): 5 alex-seed прогонов = пол шума; type-compare = train-identity vs init-source
 
 ---
 
@@ -19,7 +20,7 @@
 **Init — идентичен.** Все 4 cartridges инициализируются одним и тем же:
 
 ```python
-INIT_CORPUS = variants/alex/family_tree_corpus.txt    # hardcoded в graph_train_variants.py
+INIT_CORPUS = variants/alex/family_tree_corpus.txt    # hardcoded в training/train.py
 kv_cache_initializer = KVFromText.Config(text_source=INIT_CORPUS, max_tokens=None)
 ```
 
@@ -52,21 +53,69 @@ kv_cache_initializer = KVFromText.Config(text_source=INIT_CORPUS, max_tokens=Non
 
 ### 3.2. Генерация QA
 
-`graph_qagen.py` строит 8 категорий вопросов с помощью BFS-обхода (`FamilyTree.find_path_reasoning`):
+`data_gen/qagen.py` строит 9 категорий вопросов с помощью BFS-обхода (`FamilyTree.find_path_reasoning`):
 
-| Cat | Описание | Options | Кол-во |
-|-----|---|--:|--:|
-| 1   | direct 1-hop single: father/mother/husband/wife (gender-gated) | 5 (A-E) | 135 |
-| 1m  | direct 1-hop multi: sons/daughters | 5 | 90 |
-| 1w  | whose-style: "Whose son/father/husband is X?" | 5 | 225 |
-| 2   | multi-hop single: grandfather/grandmother | 5 | 90 |
-| 2m  | multi-hop multi: brothers/sisters/uncles/aunts/grandsons/granddaughters/cousins | 5 | 315 |
-| 3   | counting: children/sons/daughters/siblings/grandchildren | 5 | 225 |
-| 4   | verification: "Is A B's rel?" mix true/false | **3 (Yes/No/Unknown)** | 8100 |
-| 5   | existence: "Does X have any rel?" | **3 (Yes/No/Unknown)** | 405 |
-| 6   | disambig: "Name one of X's rel" — correct = lex-first valid | 5 | 40 |
+| Cat | Описание | Options | Кол-во | Пример (вопрос → ответ) |
+|-----|---|--:|--:|---|
+| 1   | direct 1-hop single: father/mother/husband/wife (gender-gated) | 5 (A-E) | 135 | "Who is Mary's father?" → "John." |
+| 1m  | direct 1-hop multi: sons/daughters | 5 | 90 | "Who are John's sons?" → "Paul, Steven." |
+| 1w  | whose-style: "Whose son/father/husband is X?" | 5 | 225 | "Whose son is Paul?" → "John." |
+| 2   | multi-hop single: grandfather/grandmother | 5 | 90 | "Who is Mary's grandfather?" → "George." |
+| 2m  | multi-hop multi: brothers/sisters/uncles/aunts/grandsons/granddaughters/cousins | 5 | 315 | "Who are Mary's cousins?" → "Anna, Lucy." |
+| 3   | counting: children/sons/daughters/siblings/grandchildren | 5 | 225 | "How many children does John have?" → "3." |
+| 4   | verification: "Is A B's rel?" mix true/false | **3 (Yes/No/Unknown)** | 8100 | "Is John Mary's father?" → "Yes." |
+| 5   | existence: "Does X have any rel?" | **3 (Yes/No/Unknown)** | 405 | "Does Mary have any sisters?" → "No." |
+| 6   | disambig: "Name one of X's rel" — correct = lex-first valid | 5 | 40 | "Name one of John's sons." → "Paul." |
 
-**Итого: 9625 QA, ~214 на человека.** Cat 4 доминирует (~84%) и масштабируется через `--n-verif-per-rel`.
+**Сырьё: 9625 QA** (Cat 4 доминирует ~84%). По умолчанию данные **ребалансируются**
+(`MIX_DEFAULT`, флаг `--rebalance`/`--no-rebalance`) к целевой смеси: reasoning-категории
+≈ натуральные доли, verification+existence суммарно **25%** → **1333 QA** (1067 train / 266 test).
+
+⚠️ **Фикс (качество MC-опций).** Раньше диспетчеризация по категории в `build_mc_record`
+сравнивала строковую `category` с int → **все** категории падали в name-multi ветку, и
+Cat 4/5 получали мусорные опции (`"Is A B's father?"` → `["Emily.","Mary.","None.","No.","Dorothy, No."]`).
+Исправлено → Cat 4/5 теперь Yes/No/Unknown (3 опции), Cat 3 — числа. **Все прежние данные/accuracy на диске были на битых опциях.**
+
+Дополнительно: каждый record несёт `hops` (1/2/3 — hop-класс отношения, для per-hop eval);
+буква правильного ответа **равномерна** (5-опц: 20% на A–E; 3-опц: 33% на A–C) через `balance_letters`.
+
+Формат MC (`_format_mc`): вопрос + строки `A. <opt>`, ответ модели = одна буква. Примеры (имена иллюстративные):
+
+```
+Cat 1  — Who is Mary's father?          Cat 2m — Who are Mary's cousins?
+  A. Steven                               A. Anna, Lucy
+  B. John          → B                    B. None.            → A
+  C. Paul                                 C. Steven, Paul
+  D. George                               D. John
+  E. None.                                E. George, Anna
+
+Cat 1m — Who are John's sons?           Cat 3  — How many children does John have?
+  A. Mary, Anna                           A. 1
+  B. None.                                B. 4
+  C. Paul, Steven  → C                    C. 3                → C
+  D. Steven                               D. 0
+  E. George                               E. 2
+
+Cat 1w — Whose son is Paul?             Cat 4  — Is John Mary's father?
+  A. George                               A. No
+  B. John          → B                    B. Yes              → B
+  C. Mary                                 C. Unknown
+  D. Steven
+  E. None.                              Cat 5  — Does Mary have any sisters?
+                                          A. No               → A
+Cat 2  — Who is Mary's grandfather?       B. Yes
+  A. Paul                                 C. Unknown
+  B. John
+  C. George        → C                  Cat 6  — Name one of John's sons.
+  D. Steven                               A. Paul             → A
+  E. None.                                B. Anna
+                                          C. George
+                                          D. Mary
+                                          E. Steven
+```
+
+- Cat 4/5 — 3 опции (Yes/No/Unknown), остальные — 5 (A-E)
+- "None." / "Unknown" — distractor'ы, корректным ответом не бывают
 
 Дизайн-решения:
 - Опция "Unknown" — всегда distractor (никогда не правильный ответ)
@@ -77,12 +126,19 @@ kv_cache_initializer = KVFromText.Config(text_source=INIT_CORPUS, max_tokens=Non
 
 ### 3.3. Train/test split
 
-**By-person, 20% test:**
-- 36 people train, 9 people test
-- Train: 7700 QA, test: 1925 QA
-- Cross-references **разрешены**: вопрос про test-person может иметь train-person в ответе
+Режим выбирается флагом `--split-mode` (в `qagen.py` и `generate_variants.py`),
+20% в test, фиксированный seed → один и тот же hold-out во всех вариантах:
 
-Преимущество перед random split: гарантирует что test содержит вопросы про **никогда не виденных** в train людей, проверяя структурное обобщение.
+- **`question`** (текущий **дефолт**): рандомный hold-out 20% **вопросов**. Test
+  может спрашивать про людей, **виденных** в train → ближе к стандартному random
+  split / проверке recall, чем к обобщению.
+- **`person`** (прежний дефолт): hold-out целых **людей** (36 train / 9 test).
+  Гарантирует, что test — про **никогда не виденных** в train людей → проверяет
+  структурное обобщение. Cross-references разрешены (ответ может быть train-человеком).
+
+⚠️ Замена дефолта на `question` **меняет смысл** замеров §5.4 (cross-variant как
+индикатор структуры): при question-сплите test уже не изолирует невиданных людей.
+Для структурного теста запускать с `--split-mode person`.
 
 ### 3.4. Формат train-примера
 
@@ -130,14 +186,18 @@ Loss в `train.py:407` использует `topk_token_idxs` — берёт л�
 
 `TrainableCache` использует sentinel `CARTRIDGE_SEQ_ID = -1` чтобы FlexAttention понимал, что cartridge-токены доступны всем запросам.
 
-### 4.3. Гиперпараметры (`graph_train_variants.py`)
+### 4.3. Гиперпараметры (`training/train.py`)
 
-| Параметр | Значение |
+Все env-знобы: `EPOCHS`, `LR`, `MAX_STEPS`, `SAVE_EVERY`.
+
+| Параметр | Значение (дефолт) |
 |---|---|
 | Model | Qwen3-1.7B (FlexQwen3ForCausalLM) |
 | Optimizer | AdamW (default) |
-| LR | 2e-2 |
-| Epochs | 10 |
+| LR | 2e-2 (`LR`) |
+| Epochs | 10 (`EPOCHS`) — верхняя граница |
+| **Max optimizer steps** | **100** (`MAX_STEPS`; `-1` = без лимита, весь EPOCHS) |
+| **Checkpoint every** | **20 шагов** (`SAVE_EVERY`) → cache-step{20,40,60,80,100}.pt для dynamics |
 | Global batch | 32 |
 | Packed seq length | 1024 |
 | Packing mode | pad |
@@ -145,7 +205,7 @@ Loss в `train.py:407` использует `topk_token_idxs` — берёт л�
 | Seed | 42 |
 | DDP backend | gloo |
 
-Inline eval: `generate_eval_every_n_steps=150`, `cot=True`, `max_new_tokens=256`, batch 8, temperature 0.
+Inline eval: `generate_eval_every_n_steps=150` (при `MAX_STEPS=100` срабатывает только финальный eval после обучения), `cot=True`, `max_new_tokens=256`, batch 8, temperature 0.
 
 ---
 
@@ -153,7 +213,7 @@ Inline eval: `generate_eval_every_n_steps=150`, `cot=True`, `max_new_tokens=256`
 
 ### 5.1. Inline eval (во время train)
 
-`GraphMCEvalDataset` (в `graph_mc_eval.py`) на каждом 150-м шаге:
+`GraphMCEvalDataset` (в `training/mc_eval.py`) на каждом 150-м шаге:
 1. Берёт `test_mc.parquet` варианта
 2. Применяет chat-template с `enable_thinking=True` (модель сама генерирует reasoning)
 3. Генерирует до 256 новых токенов
@@ -163,14 +223,14 @@ Inline eval: `generate_eval_every_n_steps=150`, `cot=True`, `max_new_tokens=256`
 
 ### 5.2. Финальная eval (после train)
 
-`graph_eval.py --mode cartridge-cot --checkpoint cache_last.pt --variant-dir variants/<v>`:
+`evaluation/eval.py --mode cartridge-cot --checkpoint cache_last.pt --variant-dir variants/<v>`:
 - Прогон по всему test set (1925 QA)
 - Per-question запись: question, options, correct_letter, predicted_text, predicted_letter, correct, n_options, category, rel, person
 - Output: `results.json`
 
 ### 5.3. Post-hoc анализ
 
-`analyze_results.py results.json`:
+`evaluation/analyze.py results.json`:
 - Overall accuracy
 - Per-category accuracy
 - Per-relation accuracy
@@ -182,7 +242,7 @@ Inline eval: `generate_eval_every_n_steps=150`, `cot=True`, `max_new_tokens=256`
 Запускаем cartridge `alex` на test set `ben` (и наоборот):
 
 ```bash
-graph_eval.py --mode cartridge-cot \
+evaluation/eval.py --mode cartridge-cot \
   --checkpoint <alex_cartridge>/cache_last.pt \
   --variant-dir variants/ben \
   --output .../alex/eval_on_ben/results.json
@@ -195,19 +255,19 @@ graph_eval.py --mode cartridge-cot \
 
 ### 5.5. Baseline (Exp 3, без cartridge)
 
-ICL eval тем же `graph_eval.py --mode icl-cot --n-shot 0 --corpus-path <path>`:
+ICL eval тем же `evaluation/eval.py --mode icl-cot --n-shot 0 --corpus-path <path>`:
 - corpus формат 1: structured (`Alex is married to Karen. Alex and Karen have children: ...`)
 - corpus формат 2: prose narrative (`Alex and Karen built a life together. The couple had ...`)
 - Без few-shot
 - Cache system-prefix через `past_key_values` один раз → reuse на все 1925 вопросов
 
-Сравнение через `analyze_results.py cartridge.json icl_corpus.json icl_narrative.json` — показывает стоила ли тренировка ICL baseline.
+Сравнение через `evaluation/analyze.py cartridge.json icl_corpus.json icl_narrative.json` — показывает стоила ли тренировка ICL baseline.
 
 ---
 
 ## 6. Анализ KV-cache (без accuracy)
 
-### 6.1. Exp 1: init KV diff (`compare_init_kv.py`)
+### 6.1. Exp 1: init KV diff (`comparison/compare.py --source init`)
 
 Для каждой пары вариантов:
 1. Build init cache → K/V shape `(1, H=8, T=282, D=128)` per layer
@@ -222,7 +282,7 @@ ICL eval тем же `graph_eval.py --mode icl-cot --n-shot 0 --corpus-path <pat
 
 Подсветка позиций swapped name token (красные vlines) на heatmap → показывает локализацию изменения.
 
-### 6.2. Exp 2: trained KV diff (`compare_kv.py`)
+### 6.2. Exp 2: trained KV diff (`comparison/compare.py --source trained`)
 
 Та же логика на trained caches. Сравнение init vs trained показывает где обучение **расплыло** изменение.
 
@@ -230,182 +290,80 @@ ICL eval тем же `graph_eval.py --mode icl-cot --n-shot 0 --corpus-path <pat
 
 ## 7. Структура результатов
 
+> Канонічная карта путей (чекпоинты, compare, dynamics, env-vars и хелперы
+> `paths.py`) — в [`OUTPUTS.md`](OUTPUTS.md). Ниже — обзорный срез.
+
 ```
 outputs_graph/
-├── exp1_init_kv/          init_summary.json + heatmaps
+├── exp1_init_kv/          compare_summary.json, localization.json + heatmaps
 ├── exp2_train/
-│   ├── alex/  ben/  …     cache_last.pt + eval/ + eval_on_<other>/
-│   └── compare/           trained-KV diff
-└── exp3_icl/
-    ├── base/              corpus/ + narrative/ + compare.txt
-    └── alex/  ben/  …     то же per variant
+│   ├── <variant>/         <launch_id>/<run_id>/cache-step*.pt (+ cache_last.pt)
+│   │   ├── eval/          accuracy results.json
+│   │   └── dynamics/      rotation analysis (dynamics.py)
+│   └── compare/           trained-KV diff (+ spectra при --spectra)
+├── exp3_icl/
+│   ├── base/              corpus/ + narrative/ + compare.txt
+│   └── alex/  ben/  …     то же per variant
+└── exp4_stability/        *_run{i}/ checkpoints + alex_stability_compare/ + type_compare/
 ```
 
 ---
 
-# ЧАСТЬ II. Уже посчитанные эксперименты
+# ЧАСТЬ II. Результаты
 
-В `outputs_graph/` уже посчитаны: **Exp 1** (init KV diff, все 4 варианта, 6 пар) и **Exp 2 compare** (trained KV diff, только пара alex|ben — carl/dan ещё не обучены). ICL baseline и cartridge accuracy ещё не запущены.
+> ⚠️ **Все ранее посчитанные результаты УСТАРЕЛИ и удалены из отчёта.** Причины:
+> 1. **Баг MC-опций** (исправлен): `build_mc_record` сравнивал строковую `category`
+>    с int → все категории попадали в name-multi ветку, Cat 4/5 (84% данных) имели
+>    мусорные опции вместо Yes/No/Unknown. Любая прежняя accuracy недействительна.
+> 2. **Датасет пересобран**: целевая смесь (verif+exist ≈ 25% вместо 88%), стратифицированный
+>    сплит по вопросам (дефолт), равномерные буквы ответа, поле `hops`.
+> 3. **Фикс кэша**: `TrainableCache.from_pretrained` ранее ронял первые H=8 слотов
+>    (читал число frozen-токенов из размерности голов) → прежние trained-сравнения
+>    (§ Exp 2/Exp 4) считались на усечённых картриджах.
+> 4. На диске **нет** trained-чекпоинтов — обучение надо запустить заново.
+>
+> Эксперименты пересчитываются с нуля. Команды запуска — в [`README.md`](README.md)
+> («Recompute everything»). Карта выходов — в [`OUTPUTS.md`](OUTPUTS.md).
 
----
+## 8. Статус — всё к пересчёту
 
-## 8. Конфигурация замеров
+| Эксп | Что меряет | Драйвер | Статус |
+|---|---|---|---|
+| Exp 1 — init KV diff | что кодирует init (до обучения) | `compare.py --source init --spectra` | ⏳ recompute |
+| Exp 2 — train (4 варианта) | картриджи от общего alex-init | `MODE=variants train.py` | ⏳ recompute |
+| Exp 2 — trained KV diff | где осело различие после train | `compare.py --source trained --spectra` | ⏳ recompute |
+| Exp 2 — cartridge accuracy | own-acc по категориям/хопам | `eval.py --mode cartridge-cot` + `analyze.py` | ⏳ recompute |
+| Exp 2 — cross-variant | own-acc vs cross-acc (структура vs surface) | `eval.py … --variant-dir <other>` | ⏳ recompute |
+| Exp 3 — ICL baseline | corpus vs narrative, per-hop vs cartridge | `eval.py --mode icl-cot` + `analyze.py` | ⏳ recompute |
+| Exp 4 — stability | noise floor (seed-вариация) | `MODE=stability train.py` → `compare.py --run-prefix` | ⏳ recompute |
+| Dynamics | вращение K/V по ходу обучения | `dynamics.py` (на `cache-step*.pt`) | ⏳ recompute |
 
-- **Model:** Qwen3-1.7B
-- **Cache shape:** 28 layers × 8 KV heads × **282 tokens** × 128 head_dim
-- **Corpus tokens с swapped name:** позиции **3 и 9** (anchor founder появляется дважды в structured listing)
-- **Метрики** (head-averaged direction per (layer, slot)):
-  - `cos` — direction similarity (1.0 = identical)
-  - `angle_deg` = arccos(cos)
-  - `rel_l2` = `|A − B| / |A|`
-  - `norm_ratio` = `|A| / |B|`
+После пересчёта сюда возвращаются: таблицы accuracy × {категория, hop} × {cartridge,
+ICL-corpus, ICL-narrative}, cross-variant матрица, init/trained KV-diff с noise floor,
+spectra и кривые вращения.
 
----
+## 9. Что измерять при пересчёте (чек-лист)
 
-## 9. Exp 1 — Init KV diff (без обучения, все 6 пар)
+- **Accuracy по hop-классу** (1/2/3) на test — где предел «хождения по графу»; сравнить
+  cartridge vs ICL по хопам (`analyze.py results_cartridge.json results_icl.json`).
+- **Per-category** accuracy против chance (5-опц = 20%, 3-опц = 33%) — баланс делает
+  агрегат осмысленным.
+- **Cross-variant**: разница own-acc − cross-acc как индикатор структурного обобщения
+  (только при `--split-mode person` это честный тест на невиданных людей).
+- **Init vs trained KV diff** против **noise floor** (Exp 4) — слот значим, если angle ≫ θ₀.
+- **K vs V**: расходятся ли направления и спектры по-разному (Paper 2: keys-роутеры, values-контент).
+- **Dynamics**: крутятся ли values сильнее keys и дольше по ходу обучения.
 
-### 9.1. Aggregate per pair (mean over layers, slots)
+## 10. Открытые вопросы (дизайн, не зависят от старых чисел)
 
-| Pair | K angle° | V angle° | K rel-l2 | V rel-l2 | K norm_ratio | V norm_ratio |
-|---|--:|--:|--:|--:|--:|--:|
-| alex \| ben  | 1.73 | 3.02 | 0.32 | 1.16 | 1.000 | 1.000 |
-| alex \| carl | 2.14 | 3.52 | 0.40 | 1.33 | 1.000 | 1.000 |
-| alex \| dan  | 2.70 | 4.39 | 0.49 | 1.67 | 1.000 | 1.000 |
-| ben \| carl  | 2.03 | 3.37 | 0.38 | 1.29 | 1.000 | 1.000 |
-| ben \| dan   | 2.61 | 4.15 | 0.47 | 1.61 | 1.000 | 1.000 |
-| carl \| dan  | 2.95 | 4.54 | 0.53 | 1.78 | 1.000 | 1.000 |
-
-**Наблюдения:**
-- Углы малые (1.7°–4.5°), но **систематические** — замена одного имени двигает direction в каждом slot'е.
-- **norm preserved** (`norm_ratio ≈ 1.0` всюду) → меняется **направление** ключей/значений, не магнитуда.
-- V каналы расходятся **в 1.5–2× сильнее** чем K. Объяснение: V несёт «контент» (имена, факты), K — «адресацию» (позиционно-структурную).
-- Расстояние между парами **зависит от выбора имён**: alex|dan расходится сильнее всего, alex|ben — слабее. Гипотеза: tokenization-зависимо (длина имени в BPE, частотность токена).
-
-### 9.2. Name-slots vs other-slots
-
-| Pair | K@name° | K@other° | ratio | V@name° | V@other° | ratio |
-|---|--:|--:|--:|--:|--:|--:|
-| alex \| ben  | **3.03** | 1.72 | **1.76** | **6.33** | 3.00 | **2.11** |
-| alex \| carl | 1.99 | 2.14 | 0.93 | 4.00 | 3.51 | 1.14 |
-| alex \| dan  | 2.58 | 2.70 | 0.95 | 5.00 | 4.39 | 1.14 |
-| ben \| carl  | 2.75 | 2.03 | 1.36 | 5.76 | 3.36 | **1.72** |
-| ben \| dan   | 2.12 | 2.61 | 0.81 | 4.76 | 4.14 | 1.15 |
-| carl \| dan  | 2.11 | 2.95 | 0.72 | 4.18 | 4.54 | 0.92 |
-
-**Ключевой результат:** ratio name/other **непостоянен** по парам. Для `alex|ben` divergence сконцентрирован в name slots (×2 для V), но для `carl|dan` — наоборот, name slots дивиржируют **меньше** среднего.
-
-Это значит: **замена имени не локализована в name slots на уровне init KV.** Effect расплывается по контексту. Возможные причины:
-- BPE: разные имена могут токенизироваться в разное число sub-tokens → сдвигает позиционные кодировки последующих слов
-- Attention head mixing: даже до обучения, K/V одного слота — сумма attention-weighted contributions всех предшествующих токенов
-
-### 9.3. Top диверджирующие slots (K)
-
-Через все 6 пар топ-5 slots по mean-over-layers angle стабильно содержит: **5, 6, 11, 12, 13** (и иногда **190**).
-
-Name positions 3, 9 — **НЕ** в топе. То есть наибольшее расхождение между init caches лежит в slots сразу **после** позиции имени (контекстное распространение), а не в самих name slots.
-
-Slot 190 — обособленная точка ближе к концу corpus. Возможно совпадает с другим именем-токеном в later sentences (нужна проверка).
-
----
-
-## 10. Exp 2 — Trained KV diff (alex vs ben, оба обучены)
-
-Checkpoint paths:
-```
-checkpoints_variants/alex/2026-05-27-12-05-02-.../cache_last.pt
-checkpoints_variants/ben/2026-05-27-12-05-44-.../cache_last.pt
-```
-
-### 10.1. Aggregate
-
-| Pair | K cos | K angle° | K rel-l2 | V cos | V angle° | V rel-l2 |
-|---|--:|--:|--:|--:|--:|--:|
-| alex \| ben (init)    | 0.9996 | 1.73° | 0.32 | 0.9986 | 3.02° | 1.16 |
-| alex \| ben (trained) | **0.9992** | **2.29°** | **0.037** | **0.9694** | **14.2°** | **0.150** |
-
-**Парадокс масштабов** (отдельный effect — нужно проверить normalization!): rel-l2 у trained сильно **меньше** init (0.037 vs 0.32 для K). Возможные объяснения:
-- Init values имеют большую magnitude (KVFromText проходит base model — высокие активации). После train cache scaled / regularized → меньшая norm.
-- Норма `|A|` в знаменателе rel-l2 различается между init и trained.
-
-**Направление (cos / angle):** training **усиливает** дивергенцию между alex и ben.
-- K: 1.73° → 2.29° (×1.3)
-- V: 3.02° → **14.2°** (×4.7)
-
-Это ожидаемо: training специализирует cartridge под свою train data. Но **V расходится в 4.7× сильнее** чем при init, тогда как K только в 1.3×. → **Контентная составляющая (V) — главный носитель различий после train**, structural (K) почти не меняется относительно init.
-
-### 10.2. Артефакты
-
-Сохранены heatmaps (28×282 layer × slot):
-- `heatmap_{K,V}_{cos,rel_l2}.png` — global per-layer
-- `slot_alex_ben_{K,V}_{cos,rel_l2}.png` — per-slot detail для пары alex|ben
-
----
-
-## 11. Status и что осталось
-
-| Эксп | Status | Output |
-|---|---|---|
-| Exp 1 init KV (all 4 variants, 6 pairs) | ✅ done | `outputs_graph/exp1_init_kv/init_summary.json` |
-| Exp 2 train alex                         | ✅ done | `checkpoints_variants/alex/.../cache_last.pt` |
-| Exp 2 train ben                          | ✅ done | `checkpoints_variants/ben/.../cache_last.pt` |
-| Exp 2 train carl, dan                    | ⏳ pending | — |
-| Exp 2 compare alex \| ben                | ✅ done | `exp2_train/compare/compare_summary.json` + 8 heatmap PNG |
-| Exp 2 compare всех 4 пар (после train carl/dan) | ⏳ pending | — |
-| Exp 2 cartridge accuracy (cartridge-cot eval)   | ⏳ pending | — |
-| Exp 2 cross-variant eval (alex→ben, ben→alex)   | ⏳ pending | — |
-| Exp 3 ICL base corpus + narrative               | ⏳ pending | — |
-| Exp 3 ICL per-variant                           | ⏳ pending | — |
-
----
-
-## 12. Главные тезисы для доклада
-
-> **Tезис 1.** Замена одного имени в corpus уже двигает init KV cache, но не локализованно: divergence затрагивает целиком окружающий контекст (top slots = post-name positions, не сами name slots).
-
-> **Tезис 2.** Magnitude direction сохранена при init (`norm_ratio ≈ 1.0`) — изменяется только direction в head-mean space.
-
-> **Tезис 3.** Train усиливает разделение между variants преимущественно в **V** (×4.7), почти не трогая **K** (×1.3). Cartridge учится разносить **содержимое** ответов, не **структуру** обращения.
-
-> **Tезис 4.** ratio name-slot/other-slot **не стабилен по парам** — пара (alex, ben) показывает чистую локализацию в name slots, но (carl, dan) нет. Гипотеза: BPE-токенизация конкретных имён влияет неоднородно.
-
----
-
-## 13. Ключевые вопросы для обсуждения с лабораторией
-
-1. **Loss spec.** Letter-only выбран сознательно для чистоты — но если accuracy не растёт, обсудить teacher-forced BFS reasoning (с маскированием) или RL.
-2. **Cat 4 disbalance.** Verification = 84% датасета. Можно ли это считать честным или нужна явная балансировка по категориям (sub-sample)?
-3. **Init choice.** Alex как anchor — произвольный выбор. Альтернатива: усреднённый init из всех 4 corpus.
-4. **Cross-variant как primary metric.** Я бы предложил считать **разницу** own-acc vs cross-acc главным индикатором "structural understanding".
-5. **Размер cartridge.** Сейчас `max_tokens=None` (size = длина corpus, ~282 токена). Стоит варьировать.
-6. **Eval cost.** 256 new tokens × 1925 вопросов × 4 variants × N inline evals — основная статья расходов. Можно subsample test set или сократить max_new.
-7. **Норма rel-l2 у trained << init** — physical или artifact метрики? Проверить через absolute |A−B| без нормировки.
-8. **K почти не меняется при train, V радикально** — это хорошо (cartridge не ломает structural attention) или сигнал что K cache слишком «жёсткий» и его нужно тоже учить интенсивнее?
-9. **Top-divergence на slot 190** — есть второй name token там? Декодировать корпус и проверить.
-
----
-
-## 14. Что подготовить для презентации
-
-- [ ] Tree visualization (graphviz из `family_tree.json`) + corpus.txt пример
-- [ ] Bar chart распределения QA по 9 категориям
-- [ ] Pipeline diagram (generate_tree → qagen → train → eval × 3 ветки)
-- [ ] Loss-mask схема ("user — full visible; assistant — only letter graded")
-- [ ] Heatmap из exp1 (cos/angle layer × slot, с подсвеченным name slot)
-- [ ] Heatmap из exp2 compare alex|ben (`heatmap_V_rel_l2.png`, `slot_alex_ben_V_cos.png`)
-- [ ] Таблица из §9.1 (init divergence aggregate)
-- [ ] Таблица из §10.1 (init vs trained)
-- [ ] **(после доп. прогонов)** Таблица accuracy: per-cat × {cartridge alex/ben/carl/dan, ICL corpus, ICL narrative}
-- [ ] **(после доп. прогонов)** Cross-variant matrix: train variant × test variant
-- [ ] **(после доп. прогонов)** Cartridge-vs-ICL barplot (где cartridge wins / loses по категориям)
-- [ ] Open questions slide (§13)
-
----
-
-## 15. Что нужно дозапустить **до доклада**
-
-- carl + dan training → закроет полную матрицу 6 trained пар
-- cartridge-cot eval всех 4 → primary accuracy результат
-- cross-variant eval (alex↔ben↔carl↔dan, 12 cross runs) → структура vs surface signal
-- ICL baseline (base + 4 variants, × 2 corpus formats) → нижняя граница
-
-После этого таблица accuracy × категория × {cartridge_per_variant, ICL_corpus, ICL_narrative} + cross-variant matrix станут centerpiece доклада.
+1. **Loss spec.** Letter-only выбран для чистоты. Если accuracy низкая — обсудить
+   teacher-forced BFS-reasoning (с маскированием) или RL.
+2. **Целевая смесь.** `MIX_DEFAULT` даёт verif+exist ≈ 25%; подобрать доли под цель
+   (retrieval/reasoning) — стоит ли менять.
+3. **Curriculum.** Подавать ли hop-1 раньше мультихопов (сейчас глобальный шафл; нужен
+   отдельный режим). Гипотеза слабая — проверяемо.
+4. **Размер картриджа.** Сейчас `max_tokens=None` (≈ длина корпуса). Варьировать и
+   смотреть accuracy/размер.
+5. **Cousin = бакет «3+»** (реальная цепочка 3–6). Хранить ли точный `chain_length`.
+6. **Split mode.** `question` (дефолт) меряет recall; `person` — структурное обобщение.
+   Какой считать основным для тезиса о «структуре».

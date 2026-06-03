@@ -76,6 +76,7 @@ Every `compare.py` run writes to `--out-dir`:
 | `stability.json` | overall mean angle + std-across-pairs | **(b)** noise floor |
 | `heatmap_K_angle.png`, `heatmap_V_angle.png` | mean (layer × slot) angle over all pairs | overview map |
 | `slot_<a>_<b>_K_angle.png`, `…_V_angle.png` | per-pair (layer × slot) angle; red vlines = name slots | **(a)** see *where* on the cartridge |
+| `spectra.json`, `spectra_K.png`, `spectra_V.png` | per-label singular value spectra (only with `--spectra`) | **(c)** keys-flat / values-decay (Paper 2) |
 
 The schema is identical regardless of source (`init` vs `trained`) or count of
 inputs, so results compose across experiments.
@@ -136,3 +137,29 @@ it is indistinguishable from training noise.
 3. If `name_slot_ratio ≫ 1`, the swapped entity is localized to its name slots.
    If ≈ 1, the change is spread across the cartridge (entangled, not localized).
 4. Use `slot_*` heatmaps to see *which layers* concentrate the change.
+
+---
+
+## 8. Two extra views (Paper 2)
+
+Beyond the static angle comparison above, two analyses probe *how* a cartridge
+is built. Both reduce K/V the same way (head-mean direction / SVD over slots), so
+their degrees are comparable to the noise floor in §7.
+
+**Training dynamics — `comparison/dynamics.py`.** Reads the `cache-step{N}.pt`
+series of ONE run (train with a low `SAVE_EVERY`, default 20) and measures, per
+layer, how K and V rotate:
+- *incremental* `angle(Z_t, Z_{t-1})` — where/when the cartridge is still moving;
+- *cumulative* `angle(Z_t, Z_0)` — how far it has turned from init (`--init-corpus`
+  builds the true step-0).
+
+Paper-2 expectation: value rotations ≫ key rotations and continue late into
+training. Outputs: `dynamics.json`, `rotation_{incremental,cumulative}.png`,
+`heatmap_{K,V}_{incremental,cumulative}.png`.
+
+**Singular value spectra — `--spectra`** (on `compare.py` and `dynamics.py`).
+Per layer, SVD the slot matrix `(T, H·D)` and normalize by the leading value.
+A flat spectrum near 1 (random-like) means slots are barely used; a decaying
+spectrum means information is concentrated (compression). Paper-2 finding: keys
+stay flat, values develop a decaying spectrum after training. Also reports a
+participation ratio (effective rank) per layer.

@@ -12,7 +12,10 @@
 #   exp4_stability/    (see run_exp4_stability.sh)
 #
 # Stages (skip with SKIP_<stage>=1):
-#   tree qa variants narrative exp1_init exp2_train exp2_compare exp3_icl cart_eval
+#   tree qa variants narrative exp1_init exp2_train exp2_compare dynamics exp3_icl cart_eval
+# Data is rebalanced + uniform-letter + hops by default; training defaults to
+# MAX_STEPS=100 / SAVE_EVERY=20 (override via env). cart_eval also emits a
+# cartridge-vs-ICL per-hop comparison when exp3 ICL results exist.
 #
 # Usage:
 #   bash examples/graph/scripts/run_all.sh
@@ -50,7 +53,8 @@ VDIR="$DATA/variants"
 mkdir -p "$OUT/exp1_init_kv" "$OUT/exp2_train/compare" \
          "$OUT/exp3_icl/base/corpus" "$OUT/exp3_icl/base/narrative"
 for v in "${VARIANTS[@]}"; do
-  mkdir -p "$OUT/exp2_train/$v/eval" "$OUT/exp3_icl/$v/corpus" "$OUT/exp3_icl/$v/narrative"
+  mkdir -p "$OUT/exp2_train/$v/eval" "$OUT/exp2_train/$v/dynamics" \
+           "$OUT/exp3_icl/$v/corpus" "$OUT/exp3_icl/$v/narrative"
 done
 echo "output dirs ready under: $OUT"
 
@@ -104,7 +108,7 @@ stage_narrative() {
 # ── 5. exp1: init KV compare ─────────────────────────────────────────────────
 stage_exp1_init() {
   py examples.graph.comparison.compare --source init \
-    --names "$(names_csv)" --top-k 30 \
+    --names "$(names_csv)" --top-k 30 --spectra \
     --out-dir "$OUT/exp1_init_kv" \
     2>&1 | tee "$OUT/exp1_init_kv/run.log"
 }
@@ -123,10 +127,24 @@ stage_exp2_train() {
 stage_exp2_compare() {
   py examples.graph.comparison.compare --source trained \
     --ckpt-root "$OUT/exp2_train" --names "$(names_csv)" \
-    --init-corpus "$VDIR/alex/family_tree_corpus.txt" --localize-names "$(names_cap)" \
+    --init-corpus "$VDIR/alex/family_tree_corpus.txt" --localize-names "$(names_cap)" --spectra \
     --out-dir "$OUT/exp2_train/compare" \
     2>&1 | tee "$OUT/exp2_train/compare/run.log" \
     || echo "compare failed — check checkpoints exist"
+}
+
+# ── 7b. training dynamics: how K/V rotate during training ─────────────────────
+stage_dynamics() {
+  for v in "${VARIANTS[@]}"; do
+    if ! find "$OUT/exp2_train/$v" -name 'cache-step*.pt' 2>/dev/null | grep -q .; then
+      echo "no cache-step*.pt for $v — skip (train with low SAVE_EVERY)"; continue
+    fi
+    py examples.graph.comparison.dynamics \
+      --run-dir "$OUT/exp2_train/$v" \
+      --init-corpus "$VDIR/$v/family_tree_corpus.txt" --spectra \
+      --out-dir "$OUT/exp2_train/$v/dynamics" \
+      2>&1 | tee "$OUT/exp2_train/$v/dynamics/run.log"
+  done
 }
 
 # ── 8. exp3: ICL (corpus vs narrative) ───────────────────────────────────────
@@ -163,6 +181,13 @@ stage_cart_eval() {
       2>&1 | tee "$OUT/exp2_train/$v/eval/run.log"
     py examples.graph.evaluation.analyze "$OUT/exp2_train/$v/eval/results.json" \
       > "$OUT/exp2_train/$v/eval/summary.txt"
+    # cartridge vs ICL, per hop-class + per category (if ICL results exist)
+    local icl="$OUT/exp3_icl/$v/corpus/results.json"
+    if [ -f "$icl" ]; then
+      py examples.graph.evaluation.analyze --no-detail \
+        "$OUT/exp2_train/$v/eval/results.json" "$icl" \
+        > "$OUT/exp2_train/$v/eval/vs_icl_by_hop.txt"
+    fi
   done
 }
 
@@ -174,6 +199,7 @@ run narrative    stage_narrative
 run exp1_init    stage_exp1_init
 run exp2_train   stage_exp2_train
 run exp2_compare stage_exp2_compare
+run dynamics     stage_dynamics
 run exp3_icl     stage_exp3_icl
 run cart_eval    stage_cart_eval
 
