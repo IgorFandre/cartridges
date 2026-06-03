@@ -26,7 +26,9 @@ MODE=single             — one cartridge on the base (un-swapped) tree.
     env: SEED_BASE=42  CARTRIDGE_TOKENS=
     out: $outputs/exp2_train/base/
 
-Common env: EPOCHS (default 10), LR (default 2e-2).
+Common env: EPOCHS (default 10), LR (default 2e-2),
+            MAX_STEPS (default 100, -1 = unlimited / full EPOCHS),
+            SAVE_EVERY (default 20 → checkpoints at 20/40/60/80/100 for dynamics).
 Results root: $CARTRIDGES_OUTPUT_DIR_GRAPH (default <repo>/outputs_graph).
 
 Usage:
@@ -53,6 +55,12 @@ from examples.graph import paths
 # ── Shared hyperparameters ───────────────────────────────────────────────────
 EPOCHS = int(os.environ.get("EPOCHS", "10"))
 LR = float(os.environ.get("LR", "2e-2"))
+# Hard cap on optimizer steps (-1 = unlimited, run full EPOCHS). Default 100 →
+# short runs whose K/V rotation is traced by comparison/dynamics.py.
+MAX_STEPS = int(os.environ.get("MAX_STEPS", "100"))
+# Checkpoint cadence. Default 20 → with MAX_STEPS=100 yields checkpoints at
+# steps 20/40/60/80/100 (5 points) for the rotation analysis.
+SAVE_EVERY = int(os.environ.get("SAVE_EVERY", "20"))
 
 
 def _cartridge_tokens() -> int | None:
@@ -90,6 +98,7 @@ def build_config(
         seed=seed,
         lr=LR,
         epochs=EPOCHS,
+        max_optimizer_steps=MAX_STEPS,
         global_batch_size=32,
         dataset=MaskedAnswerTrainDataset.Config(
             data_sources=[DataSource(path=str(train_parquet), type="local")],
@@ -110,7 +119,7 @@ def build_config(
                 temperature=0.0,
             )
         ],
-        save_every_n_steps=200,
+        save_every_n_steps=SAVE_EVERY,
         output_dir=str(output_dir),
         name=run_name,
         distributed_backend="gloo",

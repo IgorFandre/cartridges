@@ -13,7 +13,23 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+try:
+    from examples.graph.data_gen.family_tree import hops_for
+except Exception:  # allow running stand-alone without package import
+    hops_for = None
+
 LETTERS = list("ABCDE")
+
+
+def get_hops(r: dict):
+    """Hop-class of a result; fall back to deriving from category/rel for
+    results produced before `hops` was stored."""
+    h = r.get("hops")
+    if h is not None:
+        return h
+    if hops_for is not None:
+        return hops_for(r.get("category"), r.get("rel", ""))
+    return None
 
 
 def load_results(path: Path) -> list[list[dict]]:
@@ -63,6 +79,17 @@ def analyze_run(results: list[dict], run_idx: int = 0, n_runs: int = 1,
         rs = by_cat[cat]
         c = sum(r["correct"] for r in rs)
         print(f"{cat:<5}{len(rs):>6}{c:>10}{acc(rs) * 100:>9.2f}%")
+
+    # ── per-hop (how far can the model walk the graph?) ──────────────────────
+    section("per hop-class (1=adjacent · 2=grand/uncle/aunt · 3=cousin/distant)")
+    by_hop: dict = defaultdict(list)
+    for r in results:
+        by_hop[get_hops(r)].append(r)
+    print(f"{'hops':<6}{'N':>6}{'correct':>10}{'acc':>10}")
+    for h in sorted(by_hop, key=lambda x: (x is None, x)):
+        rs = by_hop[h]
+        c = sum(r["correct"] for r in rs)
+        print(f"{str(h):<6}{len(rs):>6}{c:>10}{acc(rs) * 100:>9.2f}%")
 
     # ── per-relation ────────────────────────────────────────────────────────
     section("per relation")
@@ -181,10 +208,35 @@ def per_rel_csv(all_files: dict[str, list[list[dict]]], out_path: Path):
 
 def compare_summary(all_files: dict[str, list[list[dict]]]):
     header(f"COMPARE  ({len(all_files)} files)")
+    flat = {label: [r for run in runs for r in run] for label, runs in all_files.items()}
+
     print(f"{'file':<40}{'N':>8}{'acc':>10}")
-    for label, runs in all_files.items():
-        merged = [r for run in runs for r in run]
+    for label, merged in flat.items():
         print(f"{label:<40}{len(merged):>8}{acc(merged) * 100:>9.2f}%")
+
+    # ── per-hop accuracy across files (cartridge vs ICL: where does each break?)
+    section("accuracy by hop-class  (row = file, col = hops)")
+    hop_keys = sorted({get_hops(r) for m in flat.values() for r in m},
+                      key=lambda x: (x is None, x))
+    print(f"{'file':<40}" + "".join(f"{('h'+str(h)):>8}" for h in hop_keys))
+    for label, merged in flat.items():
+        cells = ""
+        for h in hop_keys:
+            rs = [r for r in merged if get_hops(r) == h]
+            cells += f"{(acc(rs) * 100):>7.1f}" + "%" if rs else f"{'—':>8}"
+        print(f"{label:<40}{cells}")
+
+    # ── per-category accuracy across files ───────────────────────────────────
+    section("accuracy by category  (row = file, col = category)")
+    cat_keys = sorted({str(r["category"]) for m in flat.values() for r in m},
+                      key=lambda c: (c[0], c))
+    print(f"{'file':<40}" + "".join(f"{c:>8}" for c in cat_keys))
+    for label, merged in flat.items():
+        cells = ""
+        for c in cat_keys:
+            rs = [r for r in merged if str(r["category"]) == c]
+            cells += f"{(acc(rs) * 100):>7.1f}" + "%" if rs else f"{'—':>8}"
+        print(f"{label:<40}{cells}")
 
 
 def main():

@@ -129,6 +129,28 @@ def build_inputs(questions: List[str], tokenizer, system_prompt: str | None, dev
     return input_ids, seq_ids, position_ids
 
 
+# ── Cartridge K/V ablation (Paper 2) ──────────────────────────────────────────
+def _ablate_cache(cache, keys_from: str | None, values_from: str | None, device: str):
+    """In-place swap of trainable K and/or V vectors from donor checkpoint(s)."""
+    from cartridges.cache import TrainableCache
+
+    def swap(attr: str, donor_path: str):
+        donor = TrainableCache.from_pretrained(donor_path, device=device).to(device)
+        base_list = getattr(cache, attr)
+        donor_list = getattr(donor, attr)
+        assert len(base_list) == len(donor_list), "layer count mismatch"
+        with torch.no_grad():
+            for l, (b, d) in enumerate(zip(base_list, donor_list)):
+                assert b.shape == d.shape, f"{attr}[{l}] shape {b.shape} != donor {d.shape}"
+                b.copy_(d.to(b.device, b.dtype))
+        print(f"  ablation: swapped {attr} ← {donor_path}")
+
+    if keys_from:
+        swap("trainable_keys", keys_from)
+    if values_from:
+        swap("trainable_values", values_from)
+
+
 # ── Cartridge eval ───────────────────────────────────────────────────────────
 def run_cartridge_eval(args) -> List[dict]:
     from cartridges.cache import TrainableCache
@@ -146,6 +168,12 @@ def run_cartridge_eval(args) -> List[dict]:
 
     cache: TrainableCache = TrainableCache.from_pretrained(args.checkpoint, device=device)
     cache = cache.to(device)
+
+    # Paper 2 ablation: swap the learned K (or V) vectors in from another cartridge.
+    # If keys are shareable routers, swapping K should cost little accuracy; a large
+    # drop when swapping V (vs K) says V carries the task-specific content.
+    if args.ablate_keys_from or args.ablate_values_from:
+        _ablate_cache(cache, args.ablate_keys_from, args.ablate_values_from, device)
 
     convos = read_conversations(str(args._test_parquet))
     meta   = json.loads(Path(args._test_meta).read_text())
@@ -186,6 +214,7 @@ def run_cartridge_eval(args) -> List[dict]:
             results.append({
                 "category":        m["category"],
                 "rel":             m["rel"],
+                "hops":            m.get("hops"),
                 "person":          m["person"],
                 "question":        m.get("question_text", m.get("question", "")),
                 "options":         m["options"],
@@ -370,6 +399,7 @@ def run_icl_eval(args) -> List[dict]:
         results.append({
             "category":        m["category"],
             "rel":             m["rel"],
+            "hops":            m.get("hops"),
             "person":          m["person"],
             "question":        m.get("question_text", m.get("question", "")),
             "options":         m["options"],
@@ -426,6 +456,10 @@ def main():
     parser.add_argument("--mode", required=True,
                         choices=["icl", "icl-cot", "cartridge", "cartridge-cot"])
     parser.add_argument("--checkpoint",     default=None, help="Path to .pt cache (cartridge modes)")
+    parser.add_argument("--ablate-keys-from",   default=None,
+                        help="Swap trainable K vectors in from this checkpoint (Paper 2 ablation)")
+    parser.add_argument("--ablate-values-from", default=None,
+                        help="Swap trainable V vectors in from this checkpoint (Paper 2 ablation)")
     parser.add_argument("--model",          default="qwen1.7b", choices=list(MODEL_CONFIGS.keys()))
     parser.add_argument("--max-new-tokens", type=int, default=None,
                         help="Default: 8 for letter-only modes, 1024 for CoT modes")
