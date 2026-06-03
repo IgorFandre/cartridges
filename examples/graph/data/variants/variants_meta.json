@@ -8,6 +8,7 @@
   ],
   "seed": 42,
   "test_frac": 0.2,
+  "split_mode": "question",
   "n_verif_per_rel": 12,
   "note": "Alex is the canonical/anchor variant. Init cache for exp2 uses Alex corpus for all variants."
 }

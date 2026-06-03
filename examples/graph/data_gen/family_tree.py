@@ -96,6 +96,35 @@ GENDER_REL: dict[tuple[str, str], str] = {
 }
 
 
+# Hop-class of a relation = graph BFS distance bucket (validated against
+# FamilyTree.find_path_reasoning chain lengths). Used for per-hop eval:
+# "how far can the model walk the graph?". Siblings = 1 (direct sibling edge);
+# cousin = 3 bucket (actual chain length spans 3-6 for cousins-once/twice-removed).
+REL_HOPS: dict[str, int] = {
+    "father": 1, "mother": 1, "son": 1, "daughter": 1, "husband": 1, "wife": 1,
+    "brother": 1, "sister": 1,
+    "grandfather": 2, "grandmother": 2, "grandson": 2, "granddaughter": 2,
+    "uncle": 2, "aunt": 2, "nephew": 2, "niece": 2,
+    "cousin": 3,
+}
+
+
+def hops_for(category, rel: str) -> int:
+    """Relation hop-class (1/2/3) for a QA record, from its category and rel.
+
+    1 = adjacent (parent/child/spouse/sibling), 2 = grandparent/grandchild/
+    uncle/aunt, 3 = cousin (3+, distant). Cat-1w (whose-style) is the inverse of
+    one edge → 1; Cat-3 counting takes the max hop over its summed relations.
+    """
+    cat = str(category)
+    if cat == "1w":
+        return 1
+    if cat == "3":  # rel like "son+daughter" / "grandson+granddaughter"
+        return max((REL_HOPS.get(p, 1) for p in rel.split("+")), default=1)
+    base = rel.rsplit("_", 1)[-1]  # strip verify_/exist_/disambig_ prefixes
+    return REL_HOPS.get(base, REL_HOPS.get(rel, 1))
+
+
 class FamilyTree:
     def __init__(self, data: dict):
         self.people: list[dict] = data["people"]
