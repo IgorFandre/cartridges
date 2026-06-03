@@ -64,14 +64,11 @@ def build_init_cache(
 def find_cache_last(run_dir: Path) -> Path:
     """Find the (most recent) cache_last.pt anywhere under run_dir.
 
-    Pydrantic nests each run under <timestamp>-<uuid>/, so the checkpoint is
-    usually a couple levels down.
+    Pydrantic nests each run under <launch_id>/<run_id>/, so the checkpoint is
+    usually a couple levels down. Delegates to the canonical resolver in paths.py.
     """
-    hits = list(Path(run_dir).rglob("cache_last.pt"))
-    if not hits:
-        raise FileNotFoundError(f"no cache_last.pt under {run_dir}")
-    hits.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    return hits[0]
+    from examples.graph import paths
+    return paths.latest_checkpoint(run_dir)
 
 
 # ── Direction extraction ─────────────────────────────────────────────────────
@@ -144,6 +141,54 @@ def slot_localization(m_K: dict, m_V: dict, name_slots: list[int], n_tokens: int
     return out
 
 
+# ── Singular value spectra (Paper 2: keys stay flat, values gain spectrum) ────
+def singular_value_spectra(layers: list[torch.Tensor]) -> dict:
+    """Per-layer normalized singular value spectra of the cartridge.
+
+    Each layer (1, H, T, D) is viewed as a slot matrix (T, H*D) — every slot is
+    one vector in H*D space — and SVD'd. Singular values are normalized by the
+    largest (so the leading value is 1.0), matching Paper 2's spectra plots.
+
+    A flat spectrum near 1 (random-like) means slots are near-orthogonal and
+    barely used; a decaying spectrum means the cache concentrates information in
+    a few directions (compression). Paper 2 finds keys stay flat while values
+    develop a decaying spectrum after training.
+
+    Returns dict with:
+      spectra        list of (R,) normalized singular values per layer (R=min(T,H*D))
+      mean_spectrum  (R,) mean over layers
+      participation  (L,) participation ratio (Σσ)²/Σσ² per layer — smooth eff. rank
+    """
+    spectra, participation = [], []
+    for layer_tensor in layers:
+        mat = layer_tensor.squeeze(0).permute(1, 0, 2).reshape(layer_tensor.shape[2], -1)
+        s = torch.linalg.svdvals(mat.float())            # (R,)
+        participation.append(float((s.sum() ** 2) / (s.pow(2).sum() + 1e-12)))
+        spectra.append((s / s[0].clamp_min(1e-12)).cpu().numpy())
+    R = min(len(s) for s in spectra)
+    mean_spectrum = np.stack([s[:R] for s in spectra], axis=0).mean(axis=0)
+    return {
+        "spectra": spectra,
+        "mean_spectrum": mean_spectrum,
+        "participation": np.array(participation),
+    }
+
+
+def plot_spectra(labelled: dict[str, np.ndarray], *, title: str, out_path: Path) -> None:
+    """Overlay mean singular value spectra (one line per label) on a log-y axis."""
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for label, spectrum in labelled.items():
+        ax.plot(spectrum, label=label, alpha=0.85)
+    ax.set_yscale("log")
+    ax.set_xlabel("singular value index")
+    ax.set_ylabel("normalized singular value")
+    ax.set_title(title)
+    ax.legend(fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
 # ── Name-token slot detection ────────────────────────────────────────────────
 def find_name_slots(
     tokenizer, corpus_path: Path, name: str, max_tokens: int | None = None
@@ -189,6 +234,40 @@ def heatmap(arr: np.ndarray, *, title: str, out_path: Path,
     ax.set_ylabel("layer")
     ax.set_title(title)
     fig.colorbar(im, ax=ax)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def heatmap_xy(arr: np.ndarray, *, title: str, out_path: Path,
+               xticklabels: list, xlabel: str, ylabel: str = "layer",
+               cmap: str = "viridis", vmin=None, vmax=None) -> None:
+    """Generic (rows × cols) heatmap with explicit x tick labels (e.g. steps)."""
+    L, T = arr.shape
+    fig, ax = plt.subplots(figsize=(max(8, T * 0.4), max(4, L * 0.2)))
+    im = ax.imshow(arr, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.set_xticks(range(T))
+    ax.set_xticklabels([str(x) for x in xticklabels], rotation=45, ha="right", fontsize=7)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+
+
+def rotation_curve(steps: list, k_angle: list, v_angle: list, *,
+                   title: str, ylabel: str, out_path: Path) -> None:
+    """Two-line curve (K vs V) of mean angle vs training step — Paper 2 Fig. 2."""
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(steps, k_angle, "o-", label="K (keys)", color="tab:blue")
+    ax.plot(steps, v_angle, "s-", label="V (values)", color="tab:red")
+    ax.set_xlabel("optimizer step")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=120)
     plt.close(fig)

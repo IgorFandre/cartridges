@@ -88,9 +88,13 @@ def resolve_init_corpus(label: str, args) -> Path:
 
 
 # ── Load directions for every label ──────────────────────────────────────────
-def load_all(args, labels: list[str]):
-    """Returns (K_dirs, V_dirs) dicts: label → (L, T, D) head-mean tensor."""
-    K_dirs, V_dirs = {}, {}
+def load_all(args, labels: list[str], collect_raw: bool = False):
+    """Returns (K_dirs, V_dirs[, K_raw, V_raw]) dicts: label → tensors.
+
+    K_dirs/V_dirs hold (L, T, D) head-mean directions. When `collect_raw`, also
+    returns per-layer raw [(1, H, T, D)] lists (needed for singular value spectra).
+    """
+    K_dirs, V_dirs, K_raw, V_raw = {}, {}, {}, {}
     if args.source == "init":
         from transformers import AutoTokenizer
         from cartridges.models import HFModelConfig, FlexQwen3ForCausalLM
@@ -107,6 +111,8 @@ def load_all(args, labels: list[str]):
             K, V = kvc.build_init_cache(model, tokenizer, corpus, args.max_tokens)
             K_dirs[label] = kvc.stack_directions(K)
             V_dirs[label] = kvc.stack_directions(V)
+            if collect_raw:
+                K_raw[label], V_raw[label] = K, V
             print(f"  {label}: {tuple(K_dirs[label].shape)}  ({corpus})")
     else:
         for label in labels:
@@ -114,7 +120,11 @@ def load_all(args, labels: list[str]):
             K, V = kvc.load_trained_cache(pt)
             K_dirs[label] = kvc.stack_directions(K)
             V_dirs[label] = kvc.stack_directions(V)
+            if collect_raw:
+                K_raw[label], V_raw[label] = K, V
             print(f"  {label}: {tuple(K_dirs[label].shape)}  ({pt})")
+    if collect_raw:
+        return K_dirs, V_dirs, K_raw, V_raw
     return K_dirs, V_dirs
 
 
@@ -235,6 +245,27 @@ def run(K_dirs, V_dirs, labels, pair_slots, out_dir: Path, top_k: int, no_plots:
     print(f"\nsaved → {out_dir}/  (compare_summary.json, localization.json, stability.json)")
 
 
+def write_spectra(K_raw, V_raw, labels, out_dir: Path, no_plots: bool):
+    """Per-label singular value spectra (Paper 2): keys flat, values decay."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    spectra = {"labels": labels, "K_participation": {}, "V_participation": {}}
+    K_mean, V_mean = {}, {}
+    for label in labels:
+        spK = kvc.singular_value_spectra(K_raw[label])
+        spV = kvc.singular_value_spectra(V_raw[label])
+        spectra["K_participation"][label] = spK["participation"].tolist()
+        spectra["V_participation"][label] = spV["participation"].tolist()
+        K_mean[label] = spK["mean_spectrum"]
+        V_mean[label] = spV["mean_spectrum"]
+    (out_dir / "spectra.json").write_text(json.dumps(spectra, indent=2))
+    if not no_plots:
+        kvc.plot_spectra(K_mean, title="Key singular value spectra",
+                         out_path=out_dir / "spectra_K.png")
+        kvc.plot_spectra(V_mean, title="Value singular value spectra",
+                         out_path=out_dir / "spectra_V.png")
+    print(f"  spectra → {out_dir}/spectra.json (+ spectra_K/V.png)")
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -259,12 +290,18 @@ def main():
     p.add_argument("--out-dir", required=True)
     p.add_argument("--no-plots", action="store_true")
     p.add_argument("--top-k", type=int, default=30)
+    p.add_argument("--spectra", action="store_true",
+                   help="also emit per-label singular value spectra (Paper 2)")
     args = p.parse_args()
 
     labels = resolve_labels(args)
     print(f"source={args.source}  labels={labels}")
 
-    K_dirs, V_dirs = load_all(args, labels)
+    loaded = load_all(args, labels, collect_raw=args.spectra)
+    if args.spectra:
+        K_dirs, V_dirs, K_raw, V_raw = loaded
+    else:
+        K_dirs, V_dirs = loaded
     # sanity: identical shapes
     ref = K_dirs[labels[0]].shape
     for label in labels:
@@ -272,6 +309,8 @@ def main():
 
     pair_slots, _ = build_pair_slots(args, labels)
     run(K_dirs, V_dirs, labels, pair_slots, Path(args.out_dir), args.top_k, args.no_plots)
+    if args.spectra:
+        write_spectra(K_raw, V_raw, labels, Path(args.out_dir), args.no_plots)
 
 
 if __name__ == "__main__":
