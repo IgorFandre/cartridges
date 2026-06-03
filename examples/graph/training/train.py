@@ -61,6 +61,10 @@ MAX_STEPS = int(os.environ.get("MAX_STEPS", "100"))
 # Checkpoint cadence. Default 20 → with MAX_STEPS=100 yields checkpoints at
 # steps 20/40/60/80/100 (5 points) for the rotation analysis.
 SAVE_EVERY = int(os.environ.get("SAVE_EVERY", "20"))
+# Cap the generation-eval set (None = full test set). Set small (e.g. 24) for a
+# fast smoke run that still exercises the eval/wandb-table path.
+_eval_limit_raw = os.environ.get("EVAL_LIMIT", "").strip()
+EVAL_LIMIT = int(_eval_limit_raw) if _eval_limit_raw else None
 
 
 def _cartridge_tokens() -> int | None:
@@ -110,7 +114,7 @@ def build_config(
         generate_evals=[
             GenerationEvalConfig(
                 dataset=GraphMCEvalDataset.Config(
-                    data_source=DataSource(path=str(test_parquet), type="local"),
+                    data_source=DataSource(path=str(test_parquet), type="local", limit=EVAL_LIMIT),
                     cot=True,
                 ),
                 name_for_wandb=wandb_eval_name,
