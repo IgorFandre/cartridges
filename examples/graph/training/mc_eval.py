@@ -69,6 +69,14 @@ class GraphMCEvalDataset(GenerateEvalDataset):
         n_options = int((convo.metadata or {}).get("n_options", 5))
         gold_letter = extract_letter(convo.messages[-1].content, n_options=n_options)
 
+        # Stringify variable-length fields: this metadata is logged as a wandb.Table,
+        # which infers each column's type from the first row. `options` is a 3- or
+        # 5-element array (Yes/No/Unknown vs A-E), so a ragged column crashes the
+        # table — join it to a scalar string instead.
+        md = dict(convo.metadata or {})
+        if "options" in md and not isinstance(md["options"], str):
+            md["options"] = " | ".join(map(str, md["options"]))
+
         return GenerateEvalDatasetElement(
             input_ids=input_ids,
             prompt=[{"role": m.role, "content": m.content} for m in convo.messages[:-1]],
@@ -79,7 +87,7 @@ class GraphMCEvalDataset(GenerateEvalDataset):
                 "gold_letter": gold_letter,
                 "n_options": n_options,
                 "raw_target": convo.messages[-1].content,
-                **(convo.metadata or {}),
+                **md,
             },
         )
 
