@@ -535,7 +535,9 @@ def main():
 
     if args.output:
         out = all_results[0] if args.n_runs == 1 else all_results
-        Path(args.output).write_text(json.dumps(out, indent=2, ensure_ascii=False))
+        out_path = Path(args.output)
+        out_path.parent.mkdir(parents=True, exist_ok=True)  # don't lose results to a missing dir
+        out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False))
         print(f"\nSaved → {args.output}")
 
 
