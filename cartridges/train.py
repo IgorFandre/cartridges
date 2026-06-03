@@ -542,6 +542,23 @@ def train(config: TrainConfig):
                 accum_loss = 0.0
                 accum_num_input_tokens, accum_num_target_tokens = 0, 0
 
+                # Hard cap on optimizer steps (default -1 = unlimited). Without
+                # this break the loop always ran the full `epochs`; the field
+                # only triggered an extra save. Periodic + save_after_training
+                # still write the final checkpoint at the cap.
+                if (
+                    config.max_optimizer_steps > 0
+                    and optimizer_step >= config.max_optimizer_steps
+                ):
+                    break
+
+        # propagate the step-cap break out of the epoch loop too
+        if (
+            config.max_optimizer_steps > 0
+            and optimizer_step >= config.max_optimizer_steps
+        ):
+            break
+
     # We do a final evaluation and generation after training.
     # This is also useful for doing evaluation of a pretrained model without training
     do_evaluation()
