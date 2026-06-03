@@ -10,6 +10,7 @@ import re
 import time
 from typing import Dict, List, Literal, Optional
 
+import numpy as np
 import pandas as pd
 from pydantic import Field
 from pydrantic import BaseConfig, ObjectConfig, RunConfig
@@ -876,9 +877,29 @@ def evaluate_generations(
         avg_scores = {f"{prefix}/{col}": df[col].mean() for col in score_cols}
 
         if log_to_wandb:
+            # wandb.Table infers each column's type from the first row, so a column
+            # whose cells are variable-length arrays (e.g. MC `options` with 3 vs 5
+            # entries) crashes the table. Stringify any ndarray / scalar-sequence
+            # cell to a flat string; leave structured columns like `prompt`
+            # (list of role/content dicts) untouched.
+            def _flatten_seq_cell(v):
+                if isinstance(v, np.ndarray):
+                    return " | ".join(map(str, v.tolist()))
+                if isinstance(v, (list, tuple)) and not any(isinstance(x, dict) for x in v):
+                    return " | ".join(map(str, v))
+                return v
+
+            table_df = df.copy()
+            for col in table_df.columns:
+                if table_df[col].map(
+                    lambda v: isinstance(v, np.ndarray)
+                    or (isinstance(v, (list, tuple)) and not any(isinstance(x, dict) for x in v))
+                ).any():
+                    table_df[col] = table_df[col].map(_flatten_seq_cell)
+
             log_dict = {
                 **avg_scores,
-                f"{prefix}/table": df,
+                f"{prefix}/table": table_df,
                 f"{prefix}/num_system_and_user_tokens": df[
                     "num_system_and_user_tokens"
                 ].mean(),
