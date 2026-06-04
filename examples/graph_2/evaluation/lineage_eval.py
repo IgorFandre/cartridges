@@ -142,6 +142,30 @@ def _cache_sys_prefix(system_prompt: str, tokenizer, model, device: str, enable_
     return sys_past_kv, sys_prefix_len
 
 
+# ── Shared result-row builder ──────────────────────────────────────────────────
+def _result_row(m: dict, pred_text: str) -> dict:
+    """Build a per-question result dict from a meta record + model output.
+
+    Works whether `m` comes from test_meta.json (raw records, key='question')
+    or from conversation metadata (key='question_text').  n_bucket is always
+    normalised to str so analyze.py can sort it uniformly.
+    """
+    pred_yn = extract_yes_no(pred_text)
+    label   = m.get("label", "")
+    return {
+        "direction":     m.get("direction"),
+        "true_distance": m.get("true_distance"),
+        "n_bucket":      str(m.get("n_bucket", "none")),
+        "claimed_n":     m.get("claimed_n"),
+        "label":         label,
+        "x": m.get("x"), "y": m.get("y"),
+        "question":      m.get("question_text", m.get("question", "")),
+        "predicted":     pred_text,
+        "predicted_yn":  pred_yn,
+        "correct":       pred_yn is not None and pred_yn == label,
+    }
+
+
 # ── ICL eval ──────────────────────────────────────────────────────────────────
 def run_icl_eval(args) -> List[dict]:
     import copy
@@ -209,24 +233,12 @@ def run_icl_eval(args) -> List[dict]:
         pred_text = tokenizer.decode(
             output_ids[0][full_ids.shape[1]:], skip_special_tokens=True
         )
-        pred_yn = extract_yes_no(pred_text)
-        results.append({
-            "direction":     m["direction"],
-            "true_distance": m["true_distance"],
-            "n_bucket":      m["n_bucket"],
-            "claimed_n":     m["claimed_n"],
-            "label":         m["label"],
-            "x": m.get("x"), "y": m.get("y"),
-            "question":      m["question_text"],
-            "predicted":     pred_text,
-            "predicted_yn":  pred_yn,
-            "correct":       pred_yn is not None and pred_yn == m["label"],
-        })
+        results.append(_result_row(m, pred_text))
 
     return results
 
 
-# ── Cartridge eval ─────────────────────────────────────────────────────────────
+# ── Cartridge eval ───────────────────────────────────────────────────────────── ─────────────────────────────────────────────────────────────
 def run_cartridge_eval(args) -> List[dict]:
     from cartridges.cache import TrainableCache
     from cartridges.generation import flex_generate
@@ -285,19 +297,7 @@ def run_cartridge_eval(args) -> List[dict]:
 
         for j, m in enumerate(batch_meta):
             pred_text = tokenizer.decode(pred_ids[j], skip_special_tokens=True)
-            pred_yn   = extract_yes_no(pred_text)
-            results.append({
-                "direction":     m["direction"],
-                "true_distance": m["true_distance"],
-                "n_bucket":      m["n_bucket"],
-                "claimed_n":     m["claimed_n"],
-                "label":         m["label"],
-                "x": m.get("x"), "y": m.get("y"),
-                "question":      m["question_text"],
-                "predicted":     pred_text,
-                "predicted_yn":  pred_yn,
-                "correct":       pred_yn is not None and pred_yn == m["label"],
-            })
+            results.append(_result_row(m, pred_text))
 
     return results
 
