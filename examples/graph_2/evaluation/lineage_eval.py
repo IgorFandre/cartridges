@@ -352,6 +352,18 @@ def main():
     args._test_parquet = Path(args.test_parquet) if args.test_parquet else paths.BASE_TEST_PARQUET
     args._test_meta    = Path(args.test_meta)    if args.test_meta    else paths.BASE_TEST_META
 
+    for p, label in [
+        (args._test_parquet, "test parquet"),
+        (args._test_meta,    "test meta JSON"),
+    ]:
+        if not Path(p).exists():
+            raise FileNotFoundError(
+                f"{label} not found: {p}\n"
+                "Run data generation first:\n"
+                "  python -m examples.graph_2.data_gen.generate_tree\n"
+                "  python -m examples.graph_2.data_gen.lineage_qagen"
+            )
+
     if args.mode == "cartridge":
         assert args.checkpoint, "--checkpoint required for cartridge mode"
         results = run_cartridge_eval(args)
