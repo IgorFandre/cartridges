@@ -262,7 +262,12 @@ def main():
         if not runs:
             print(f"!! empty: {path}")
             continue
-        all_files[path.name] = runs
+        # Label by <parent>/<name> so identically-named files in different dirs
+        # (e.g. corpus/results.json vs narrative/results.json) don't collide.
+        label = f"{path.parent.name}/{path.name}"
+        if label in all_files:
+            label = str(path)
+        all_files[label] = runs
 
         if args.no_detail:
             continue
