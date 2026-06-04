@@ -41,6 +41,17 @@ find_ckpt() {
     | head -1 || true
 }
 
+# ── Check data exists ─────────────────────────────────────────────────────────
+DATA_DIR="$REPO_ROOT/examples/graph_2/data/base"
+if [ ! -f "$DATA_DIR/family_tree_corpus.txt" ] || [ ! -f "$DATA_DIR/test_lineage.parquet" ]; then
+  echo "ERROR: data not found under $DATA_DIR"
+  echo "Run data generation first:"
+  echo "  python -m examples.graph_2.data_gen.generate_tree"
+  echo "  python -m examples.graph_2.data_gen.lineage_qagen"
+  exit 1
+fi
+echo "Data: $DATA_DIR ✓"
+
 # ── Exp 0 — ICL baseline ──────────────────────────────────────────────────────
 run exp0 "ICL baseline (graph in context, free CoT)" \
   env CUDA_VISIBLE_DEVICES="$GPU" \

@@ -174,8 +174,15 @@ def run_icl_eval(args) -> List[dict]:
     model_name = MODEL_CONFIGS[args.model]
     device     = args.device
 
-    corpus = Path(args.corpus_path).read_text() if args.corpus_path else \
-             paths.BASE_CORPUS.read_text()
+    corpus_path = Path(args.corpus_path) if args.corpus_path else paths.BASE_CORPUS
+    if not corpus_path.exists():
+        raise FileNotFoundError(
+            f"Corpus not found: {corpus_path}\n"
+            "Run data generation first:\n"
+            "  python -m examples.graph_2.data_gen.generate_tree\n"
+            "  python -m examples.graph_2.data_gen.lineage_qagen"
+        )
+    corpus = corpus_path.read_text()
 
     instruction = (
         "Use the family tree below to answer the lineage question. "
