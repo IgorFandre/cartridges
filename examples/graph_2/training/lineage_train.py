@@ -45,6 +45,21 @@ SEED       = int(os.environ.get("SEED",    "42"))
 _eval_limit_raw = os.environ.get("EVAL_LIMIT", "").strip()
 EVAL_LIMIT = int(_eval_limit_raw) if _eval_limit_raw else None
 
+# Training target: "logits" = KL distillation (needs top_logprobs in parquet,
+# i.e. server-synthesized data); "tokens" = plain CE on the assistant tokens
+# (works on any parquet, used for the no-server training smoke test).
+TARGETS = os.environ.get("TARGETS", "logits").strip().lower()
+assert TARGETS in ("logits", "tokens"), f"TARGETS={TARGETS!r} must be logits|tokens"
+
+# Explicit train parquet override (skips the artifact/ auto-discovery). Used by
+# the smoke test to point at a fabricated dataset.
+TRAIN_PARQUET_OVERRIDE = os.environ.get("TRAIN_PARQUET", "").strip()
+
+# Explicit init-corpus / test-parquet overrides (default: the package data dir).
+# The smoke test generates data into a temp dir, so it overrides these.
+INIT_CORPUS_OVERRIDE  = os.environ.get("INIT_CORPUS", "").strip()
+TEST_PARQUET_OVERRIDE = os.environ.get("TEST_PARQUET", "").strip()
+
 
 def _cartridge_tokens() -> int | None:
     raw = os.environ.get("CARTRIDGE_TOKENS", "").strip()
@@ -112,7 +127,7 @@ def build_config(
         dataset=TrainDataset.Config(
             data_sources=[DataSource(path=str(train_parquet), type="local")],
             top_k_logits=20,
-            targets="logits",           # KL logprob distillation (NOT masked-letter CE)
+            targets=TARGETS,            # "logits" KL-distill (server data) | "tokens" CE (smoke)
             packed_seq_length=2048,
             packing_mode="pad",
         ),
@@ -149,9 +164,14 @@ if EXP not in ("exp1", "exp2"):
 tokens = _cartridge_tokens()
 tokens_tag = f"tok{tokens}" if tokens else "tokfull"
 
-train_parquet = _train_parquet_for(EXP)
-test_parquet  = paths.BASE_TEST_PARQUET
-init_corpus   = paths.BASE_CORPUS
+if TRAIN_PARQUET_OVERRIDE:
+    train_parquet = Path(TRAIN_PARQUET_OVERRIDE)
+    if not train_parquet.exists():
+        raise FileNotFoundError(f"TRAIN_PARQUET not found: {train_parquet}")
+else:
+    train_parquet = _train_parquet_for(EXP)
+test_parquet  = Path(TEST_PARQUET_OVERRIDE) if TEST_PARQUET_OVERRIDE else paths.BASE_TEST_PARQUET
+init_corpus   = Path(INIT_CORPUS_OVERRIDE)  if INIT_CORPUS_OVERRIDE  else paths.BASE_CORPUS
 output_dir    = (paths.EXP1_DIR if EXP == "exp1" else paths.EXP2_DIR) / "train"
 run_name      = f"lineage-{EXP}-{tokens_tag}"
 
