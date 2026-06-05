@@ -71,11 +71,15 @@ def _train_parquet_for(exp: str) -> Path:
     if exp == "exp1":
         root = paths.EXP1_DIR
     elif exp == "exp2":
-        root = paths.EXP2_DIR / "exp2_star"
+        root = paths.EXP2_DIR        # star_synthesize writes EXP2_DIR/artifact/dataset.parquet
     else:
         raise ValueError(f"Unknown EXP={exp!r}. Use 'exp1' or 'exp2'.")
 
-    hits = list(root.rglob("artifact/dataset.parquet")) if root.exists() else []
+    # Exclude the train/ subtree so we only match synthesized artifacts.
+    hits = [
+        p for p in (root.rglob("artifact/dataset.parquet") if root.exists() else [])
+        if "train" not in p.relative_to(root).parts
+    ]
     if not hits:
         raise FileNotFoundError(
             f"No artifact/dataset.parquet found under {root}. "

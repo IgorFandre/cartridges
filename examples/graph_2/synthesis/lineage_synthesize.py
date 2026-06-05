@@ -8,7 +8,7 @@ Bot B's answers carry top-k logprobs for KL-distillation training.
 Requires a running Tokasaurus server (or Modal deployment).
 Set $CARTRIDGES_TOKASAURUS_URL and $LINEAGE_SERVER_MODEL before running.
 
-Output: {CARTRIDGES_OUTPUT_DIR_GRAPH2}/<run>/artifact/dataset.parquet
+Output: {CARTRIDGES_OUTPUT_DIR_GRAPH2}/exp1_selfstudy/<run>/artifact/dataset.parquet
 
 Usage:
     python -m examples.graph_2.synthesis.lineage_synthesize
@@ -32,7 +32,8 @@ SERVER_MODEL  = os.environ.get("LINEAGE_SERVER_MODEL",       "Qwen/Qwen3-4b")
 N_SAMPLES     = int(os.environ.get("N_SAMPLES",  "1024"))
 BATCH_SIZE    = int(os.environ.get("BATCH_SIZE", "8"))
 PARALLEL      = int(os.environ.get("PARALLEL",   "32"))
-OUTPUT_DIR    = os.environ.get("CARTRIDGES_OUTPUT_DIR_GRAPH2", str(paths.OUTPUTS_DIR))
+# Write under EXP1_DIR so lineage_train._train_parquet_for("exp1") finds it.
+OUTPUT_DIR    = str(paths.EXP1_DIR)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 client = TokasaurusClient.Config(
