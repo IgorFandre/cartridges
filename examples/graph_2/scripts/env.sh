@@ -7,7 +7,7 @@
 # GPU selection is per-run: prefix each training/eval command with CUDA_VISIBLE_DEVICES=<n>.
 #
 # Synthesis (Exp 1 & 2) also requires a running Tokasaurus server:
-#   - Local:  tksrs model=Qwen/Qwen3-4b kv_cache_num_tokens='(512*1024)' max_top_logprobs=20
+#   - Local:  tksrs model=Qwen/Qwen3-1.7B kv_cache_num_tokens='(512*1024)' max_top_logprobs=20
 #   - Modal:  modal deploy infra/modal_deploy_tokasaurus.py → set CARTRIDGES_TOKASAURUS_URL
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ export TORCHDYNAMO_DISABLE="${TORCHDYNAMO_DISABLE:-1}"
 
 # Tokasaurus server for self-study synthesis
 export CARTRIDGES_TOKASAURUS_URL="${CARTRIDGES_TOKASAURUS_URL:-http://localhost:8000}"
-export LINEAGE_SERVER_MODEL="${LINEAGE_SERVER_MODEL:-Qwen/Qwen3-4b}"
+export LINEAGE_SERVER_MODEL="${LINEAGE_SERVER_MODEL:-Qwen/Qwen3-1.7B}"
 
 echo "graph_2 env ready · root=$CARTRIDGES_DIR · out=$CARTRIDGES_OUTPUT_DIR_GRAPH2"
 echo "  server=$CARTRIDGES_TOKASAURUS_URL model=$LINEAGE_SERVER_MODEL"

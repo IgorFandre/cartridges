@@ -28,7 +28,7 @@ from examples.graph_2.synthesis.lineage_resource import LineageGraphResource
 
 # ── Env knobs ─────────────────────────────────────────────────────────────────
 SERVER_URL    = os.environ.get("CARTRIDGES_TOKASAURUS_URL",  "http://localhost:8000")
-SERVER_MODEL  = os.environ.get("LINEAGE_SERVER_MODEL",       "Qwen/Qwen3-4b")
+SERVER_MODEL  = os.environ.get("LINEAGE_SERVER_MODEL",       "Qwen/Qwen3-1.7B")
 N_SAMPLES     = int(os.environ.get("N_SAMPLES",  "1024"))
 BATCH_SIZE    = int(os.environ.get("BATCH_SIZE", "8"))
 PARALLEL      = int(os.environ.get("PARALLEL",   "32"))

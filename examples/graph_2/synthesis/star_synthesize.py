@@ -36,7 +36,7 @@ from examples.graph_2.evaluation.lineage_eval import extract_yes_no
 
 # ── Constants/env ─────────────────────────────────────────────────────────────
 SERVER_URL   = os.environ.get("CARTRIDGES_TOKASAURUS_URL", "http://localhost:8000")
-SERVER_MODEL = os.environ.get("LINEAGE_SERVER_MODEL",      "Qwen/Qwen3-4b")
+SERVER_MODEL = os.environ.get("LINEAGE_SERVER_MODEL",      "Qwen/Qwen3-1.7B")
 K_RETRIES    = int(os.environ.get("K_RETRIES",  "4"))
 BATCH_SIZE   = int(os.environ.get("BATCH_SIZE", "32"))
 OUTPUT_DIR   = os.environ.get("CARTRIDGES_OUTPUT_DIR_GRAPH2", str(paths.OUTPUTS_DIR))
