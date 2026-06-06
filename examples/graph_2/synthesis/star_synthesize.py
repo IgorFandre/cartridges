@@ -258,6 +258,14 @@ def main():
     meta_list: list[dict] = json.loads(meta_path.read_text())
     if args.limit:
         meta_list = meta_list[: args.limit]
+
+    # train_meta.json records use key "question" and may carry an int n_bucket;
+    # normalise to the names the loop expects (question_text, str n_bucket).
+    for m in meta_list:
+        if "question_text" not in m:
+            m["question_text"] = m.get("question", "")
+        m["n_bucket"] = str(m.get("n_bucket", "none"))
+
     print(f"Questions to attempt: {len(meta_list)}")
 
     corpus_text = Path(args.corpus).read_text()

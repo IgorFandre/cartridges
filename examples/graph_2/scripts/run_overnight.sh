@@ -145,7 +145,10 @@ run_stage exp0_eval env CUDA_VISIBLE_DEVICES="$GPU" \
 
 # ── 7. Exp 1 cartridge eval ──────────────────────────────────────────────────
 EXP1_CKPT="$(find_ckpt "$OUT/exp1_selfstudy/train")"
-if [ -n "$EXP1_CKPT" ]; then
+if [ "${STATUS[exp1_train]:-}" != "OK" ]; then
+  echo "── SKIP exp1_eval (exp1_train is ${STATUS[exp1_train]:-missing}) ──"
+  _record exp1_eval "SKIP dep:exp1_train"
+elif [ -n "$EXP1_CKPT" ]; then
   run_stage exp1_eval env CUDA_VISIBLE_DEVICES="$GPU" \
     python -m examples.graph_2.evaluation.lineage_eval --mode cartridge \
       --checkpoint "$EXP1_CKPT" --max-new-tokens 1024 \
@@ -157,7 +160,10 @@ fi
 
 # ── 8. Exp 2 cartridge eval ──────────────────────────────────────────────────
 EXP2_CKPT="$(find_ckpt "$OUT/exp2_star/train")"
-if [ -n "$EXP2_CKPT" ]; then
+if [ "${STATUS[exp2_train]:-}" != "OK" ]; then
+  echo "── SKIP exp2_eval (exp2_train is ${STATUS[exp2_train]:-missing}) ──"
+  _record exp2_eval "SKIP dep:exp2_train"
+elif [ -n "$EXP2_CKPT" ]; then
   run_stage exp2_eval env CUDA_VISIBLE_DEVICES="$GPU" \
     python -m examples.graph_2.evaluation.lineage_eval --mode cartridge \
       --checkpoint "$EXP2_CKPT" --max-new-tokens 1024 \
