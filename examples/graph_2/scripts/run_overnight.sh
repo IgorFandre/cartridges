@@ -65,8 +65,11 @@ run_stage() {
   if [ "${!skip_var:-0}" = "1" ]; then
     echo "── SKIP $name (SKIP_$name=1) ──"; _record "$name" "SKIP"; return 0
   fi
-  if [ -n "$need" ] && [ "${STATUS[$need]:-}" != "OK" ]; then
-    echo "── SKIP $name (depends on $need, which is ${STATUS[$need]:-missing}) ──"
+  # Skip ONLY if the dependency actually FAILED. If it was OK or intentionally
+  # SKIPped (e.g. reusing an already-synthesized dataset), proceed — the stage
+  # self-checks for its inputs and errors clearly if they're truly missing.
+  if [ -n "$need" ] && [ "${STATUS[$need]:-}" = "FAIL" ]; then
+    echo "── SKIP $name ($need FAILED) ──"
     _record "$name" "SKIP dep:$need"; return 0
   fi
 
@@ -145,8 +148,8 @@ run_stage exp0_eval env CUDA_VISIBLE_DEVICES="$GPU" \
 
 # ── 7. Exp 1 cartridge eval ──────────────────────────────────────────────────
 EXP1_CKPT="$(find_ckpt "$OUT/exp1_selfstudy/train")"
-if [ "${STATUS[exp1_train]:-}" != "OK" ]; then
-  echo "── SKIP exp1_eval (exp1_train is ${STATUS[exp1_train]:-missing}) ──"
+if [ "${STATUS[exp1_train]:-}" = "FAIL" ]; then
+  echo "── SKIP exp1_eval (exp1_train FAILED) ──"
   _record exp1_eval "SKIP dep:exp1_train"
 elif [ -n "$EXP1_CKPT" ]; then
   run_stage exp1_eval env CUDA_VISIBLE_DEVICES="$GPU" \
@@ -160,8 +163,8 @@ fi
 
 # ── 8. Exp 2 cartridge eval ──────────────────────────────────────────────────
 EXP2_CKPT="$(find_ckpt "$OUT/exp2_star/train")"
-if [ "${STATUS[exp2_train]:-}" != "OK" ]; then
-  echo "── SKIP exp2_eval (exp2_train is ${STATUS[exp2_train]:-missing}) ──"
+if [ "${STATUS[exp2_train]:-}" = "FAIL" ]; then
+  echo "── SKIP exp2_eval (exp2_train FAILED) ──"
   _record exp2_eval "SKIP dep:exp2_train"
 elif [ -n "$EXP2_CKPT" ]; then
   run_stage exp2_eval env CUDA_VISIBLE_DEVICES="$GPU" \
