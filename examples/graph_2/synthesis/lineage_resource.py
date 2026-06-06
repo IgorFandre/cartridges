@@ -14,7 +14,6 @@ import random
 from pathlib import Path
 from typing import List
 
-from pydrantic import ObjectConfig
 from cartridges.data.resources import Resource
 from examples.graph.data_gen.family_tree import FamilyTree
 from examples.graph_2.data_gen.lineage_index import LineageIndex
@@ -51,7 +50,9 @@ def sample_lineage_seed_prompts(batch_size: int) -> List[str]:
 class LineageGraphResource(Resource):
     """Resource that pairs the full graph corpus with a BFS lineal path."""
 
-    class Config(ObjectConfig):
+    class Config(Resource.Config):
+        # MUST subclass Resource.Config: SelfStudySynthesizer.Config.resources is
+        # typed List[Resource.Config], so a bare ObjectConfig fails validation.
         _pass_as_config = True
         tree_path: str
         corpus_path: str | None = None

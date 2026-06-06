@@ -50,35 +50,69 @@ echo "   logs → $LOGDIR"
 echo "════════════════════════════════════════════════════════════════"
 
 declare -a STAGE_NAMES STAGE_STATUS
+declare -A STATUS         # name → OK|FAIL|SKIP  (for dependency checks)
 
-# run_stage <name> <command...>  — logs, times, records status, never aborts run
+_record() { STAGE_NAMES+=("$1"); STAGE_STATUS+=("$2"); STATUS["$1"]="${2%% *}"; }
+
+# run_stage <name> [--needs DEP] <command...>  — logs, times, records status,
+# never aborts the run.  With --needs DEP, skips if DEP didn't finish OK.
 run_stage() {
   local name="$1"; shift
+  local need=""
+  if [ "${1:-}" = "--needs" ]; then need="$2"; shift 2; fi
+
   local skip_var="SKIP_${name}"
   if [ "${!skip_var:-0}" = "1" ]; then
-    echo "── SKIP $name ──"
-    STAGE_NAMES+=("$name"); STAGE_STATUS+=("SKIP")
-    return 0
+    echo "── SKIP $name (SKIP_$name=1) ──"; _record "$name" "SKIP"; return 0
   fi
+  if [ -n "$need" ] && [ "${STATUS[$need]:-}" != "OK" ]; then
+    echo "── SKIP $name (depends on $need, which is ${STATUS[$need]:-missing}) ──"
+    _record "$name" "SKIP dep:$need"; return 0
+  fi
+
   local log="$LOGDIR/$name.log"
   echo ""
   echo "▶ [$name]  $(date +%H:%M:%S)  → $log"
   local t0=$SECONDS
   if "$@" > "$log" 2>&1; then
     local dt=$((SECONDS - t0))
-    echo "✓ [$name]  done in ${dt}s"
-    STAGE_NAMES+=("$name"); STAGE_STATUS+=("OK ${dt}s")
+    echo "✓ [$name]  done in ${dt}s"; _record "$name" "OK ${dt}s"
   else
-    local rc=$?
-    local dt=$((SECONDS - t0))
+    local rc=$?; local dt=$((SECONDS - t0))
     echo "✗ [$name]  FAILED rc=$rc after ${dt}s  (see $log)"
     echo "   ── tail of $name.log ──"
     tail -n 15 "$log" | sed 's/^/   /'
-    STAGE_NAMES+=("$name"); STAGE_STATUS+=("FAIL rc=$rc")
+    _record "$name" "FAIL rc=$rc"
   fi
 }
 
 find_ckpt() { find "$1" -name cache_last.pt 2>/dev/null | xargs ls -t 2>/dev/null | head -1; }
+
+# ── Server preflight ─────────────────────────────────────────────────────────
+# Synthesis needs a reachable Tokasaurus server whose served model matches
+# LINEAGE_SERVER_MODEL.  Check once; if it's down, the synth stages are skipped
+# (and the train stages that depend on them), so the night isn't wasted on the
+# parts that can't possibly work.
+SERVER_OK=0
+if curl -fsS --max-time 10 "$CARTRIDGES_TOKASAURUS_URL/v1/models" >/tmp/g2_models.$$ 2>/dev/null; then
+  SERVER_OK=1
+  echo "Server reachable at $CARTRIDGES_TOKASAURUS_URL · /v1/models:"
+  sed 's/^/   /' /tmp/g2_models.$$ | head -3
+  if ! grep -q "$LINEAGE_SERVER_MODEL" /tmp/g2_models.$$ 2>/dev/null; then
+    echo "   ⚠ WARNING: served model does not look like LINEAGE_SERVER_MODEL=$LINEAGE_SERVER_MODEL"
+    echo "     The TokasaurusClient will reject a mismatch — make them equal."
+  fi
+  rm -f /tmp/g2_models.$$
+else
+  echo "⚠ Server NOT reachable at $CARTRIDGES_TOKASAURUS_URL — synthesis stages will be skipped."
+  echo "  Start it on its own card, e.g.:"
+  echo "    CUDA_VISIBLE_DEVICES=1 tksrs model=$LINEAGE_SERVER_MODEL kv_cache_num_tokens='(512 * 1024)' max_top_logprobs=20"
+fi
+# Force-skip synth if the server is down (unless explicitly already skipped).
+if [ "$SERVER_OK" != "1" ]; then
+  export SKIP_exp1_syn="${SKIP_exp1_syn:-1}"
+  export SKIP_exp2_syn="${SKIP_exp2_syn:-1}"
+fi
 
 # ── 1. Data ───────────────────────────────────────────────────────────────────
 run_stage data bash -c "
@@ -94,13 +128,13 @@ run_stage exp1_syn env N_SAMPLES="$N_SAMPLES" BATCH_SIZE="$SYN_BATCH" \
 run_stage exp2_syn env ATTEMPTS="$ATTEMPTS" BATCH_SIZE=32 \
   python -m examples.graph_2.synthesis.star_synthesize --output-dir "$OUT"
 
-# ── 4. Exp 1 train ───────────────────────────────────────────────────────────
-run_stage exp1_train env CUDA_VISIBLE_DEVICES="$GPU" \
+# ── 4. Exp 1 train (needs exp1_syn) ──────────────────────────────────────────
+run_stage exp1_train --needs exp1_syn env CUDA_VISIBLE_DEVICES="$GPU" \
   EXP=exp1 CARTRIDGE_TOKENS="$CARTRIDGE_TOKENS" MAX_STEPS="$MAX_STEPS" N_EVALS="$N_EVALS" \
   python -m examples.graph_2.training.lineage_train
 
-# ── 5. Exp 2 train ───────────────────────────────────────────────────────────
-run_stage exp2_train env CUDA_VISIBLE_DEVICES="$GPU" \
+# ── 5. Exp 2 train (needs exp2_syn) ──────────────────────────────────────────
+run_stage exp2_train --needs exp2_syn env CUDA_VISIBLE_DEVICES="$GPU" \
   EXP=exp2 CARTRIDGE_TOKENS="$CARTRIDGE_TOKENS" MAX_STEPS="$MAX_STEPS" N_EVALS="$N_EVALS" \
   python -m examples.graph_2.training.lineage_train
 
@@ -117,8 +151,8 @@ if [ -n "$EXP1_CKPT" ]; then
       --checkpoint "$EXP1_CKPT" --max-new-tokens 1024 \
       --output "$OUT/exp1_selfstudy/eval/results.json"
 else
-  echo "✗ [exp1_eval] no checkpoint under $OUT/exp1_selfstudy/train — skipping"
-  STAGE_NAMES+=("exp1_eval"); STAGE_STATUS+=("SKIP no-ckpt")
+  echo "── SKIP exp1_eval (no checkpoint under $OUT/exp1_selfstudy/train) ──"
+  _record exp1_eval "SKIP no-ckpt"
 fi
 
 # ── 8. Exp 2 cartridge eval ──────────────────────────────────────────────────
@@ -129,8 +163,8 @@ if [ -n "$EXP2_CKPT" ]; then
       --checkpoint "$EXP2_CKPT" --max-new-tokens 1024 \
       --output "$OUT/exp2_star/eval/results.json"
 else
-  echo "✗ [exp2_eval] no checkpoint under $OUT/exp2_star/train — skipping"
-  STAGE_NAMES+=("exp2_eval"); STAGE_STATUS+=("SKIP no-ckpt")
+  echo "── SKIP exp2_eval (no checkpoint under $OUT/exp2_star/train) ──"
+  _record exp2_eval "SKIP no-ckpt"
 fi
 
 # ── 9. Comparison ────────────────────────────────────────────────────────────
