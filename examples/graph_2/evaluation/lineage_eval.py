@@ -166,6 +166,21 @@ def _result_row(m: dict, pred_text: str) -> dict:
     }
 
 
+def _q_of(m: dict) -> str:
+    """Question text of a meta record (raw 'question' or convo 'question_text')."""
+    return m.get("question_text", m.get("question", ""))
+
+
+def _apply_question_filter(args, convos: list, meta: list) -> tuple[list, list]:
+    """Keep only items whose question is in args._question_filter (if set)."""
+    keep_set = getattr(args, "_question_filter", None)
+    if keep_set is None:
+        return convos, meta
+    idxs = [i for i, m in enumerate(meta) if _q_of(m) in keep_set]
+    print(f"rerun filter: {len(idxs)}/{len(meta)} questions selected")
+    return [convos[i] for i in idxs], [meta[i] for i in idxs]
+
+
 # ── ICL eval ──────────────────────────────────────────────────────────────────
 def run_icl_eval(args) -> List[dict]:
     import copy
@@ -203,6 +218,7 @@ def run_icl_eval(args) -> List[dict]:
 
     if args.limit:
         convos = convos[:args.limit]; meta = meta[:args.limit]
+    convos, meta = _apply_question_filter(args, convos, meta)
 
     sys_past_kv, _ = _cache_sys_prefix(
         system_prompt, tokenizer, model, device, enable_thinking=True
@@ -270,6 +286,7 @@ def run_cartridge_eval(args) -> List[dict]:
 
     if args.limit:
         convos = convos[:args.limit]; meta = meta[:args.limit]
+    convos, meta = _apply_question_filter(args, convos, meta)
 
     is_thinking = model_name.lower() in {m.lower() for m in MODELS_WITH_THINKING}
     kwargs = {"enable_thinking": True} if is_thinking else {}
@@ -341,12 +358,17 @@ def main():
     ap.add_argument("--test-parquet",  default=None)
     ap.add_argument("--test-meta",     default=None)
     ap.add_argument("--model",         default="qwen1.7b", choices=list(MODEL_CONFIGS))
-    ap.add_argument("--max-new-tokens",type=int,  default=1024)
+    ap.add_argument("--max-new-tokens",type=int,  default=4096,
+                    help="Large by default so Qwen3 thinking isn't truncated before the Yes/No")
     ap.add_argument("--batch-size",    type=int,  default=8)
     ap.add_argument("--device",        default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--output",        default=None)
     ap.add_argument("--temperature",   type=float, default=0.0)
     ap.add_argument("--limit",         type=int,   default=None)
+    ap.add_argument("--rerun-none",    default=None,
+                    help="Path to a prior results.json: re-evaluate ONLY the questions "
+                         "whose predicted_yn is null (truncated/unparsed), then merge the "
+                         "fresh answers back and write to --output (default: in place).")
     args = ap.parse_args()
 
     args._test_parquet = Path(args.test_parquet) if args.test_parquet else paths.BASE_TEST_PARQUET
@@ -364,11 +386,43 @@ def main():
                 "  python -m examples.graph_2.data_gen.lineage_qagen"
             )
 
+    # --rerun-none: load prior results, target only the unanswered (null) ones
+    prior_results: list[dict] | None = None
+    if args.rerun_none:
+        prior_path = Path(args.rerun_none)
+        if not prior_path.exists():
+            raise FileNotFoundError(f"--rerun-none results not found: {prior_path}")
+        prior_results = json.loads(prior_path.read_text())
+        none_qs = {
+            r["question"] for r in prior_results
+            if r.get("predicted_yn") in (None, "?", "")
+        }
+        if not none_qs:
+            print("No null/unparsed answers in the prior results — nothing to rerun.")
+            return
+        print(f"Re-running {len(none_qs)} unanswered question(s) "
+              f"from {prior_path} with max_new_tokens={args.max_new_tokens}")
+        args._question_filter = none_qs
+
     if args.mode == "cartridge":
         assert args.checkpoint, "--checkpoint required for cartridge mode"
         results = run_cartridge_eval(args)
     else:
         results = run_icl_eval(args)
+
+    # Merge fresh answers back into the prior results (keyed by question text)
+    if prior_results is not None:
+        fresh = {r["question"]: r for r in results}
+        merged = [fresh.get(r["question"], r) for r in prior_results]
+        n_recovered = sum(
+            1 for r in merged
+            if r.get("predicted_yn") not in (None, "?", "")
+        ) - sum(
+            1 for r in prior_results
+            if r.get("predicted_yn") not in (None, "?", "")
+        )
+        print(f"Recovered {n_recovered} previously-null answer(s) after rerun.")
+        results = merged
 
     print_results(results, args.mode)
 
@@ -377,6 +431,10 @@ def main():
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(results, indent=2, ensure_ascii=False))
         print(f"\nSaved → {args.output}")
+    elif args.rerun_none:
+        # default: overwrite the prior results file in place
+        Path(args.rerun_none).write_text(json.dumps(results, indent=2, ensure_ascii=False))
+        print(f"\nSaved (in place) → {args.rerun_none}")
 
 
 if __name__ == "__main__":
