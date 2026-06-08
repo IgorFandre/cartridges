@@ -1,26 +1,30 @@
 """
-Exp 2 — STaR / rejection-sampling self-study synthesis.
+Exp 2 — self-study via rejection sampling.
 
-For each question in the train set:
-  1. Attempt 0 (greedy, temp 0): the HONEST ICL answer.  Its correctness is the
-     reported ICL accuracy (overall + per n-hop) — retries never bump it.
-  2. Extract Yes/No from the response.
-  3. If correct: keep the trace (with top-k logprobs) as a training Conversation.
-  4. If wrong: retry (temp rising) up to `--attempts-1` more times, only to
-     recover training data — a later success does NOT change the accuracy.
+The questions are sampled (X, Y, n, direction) pairs with controlled per-n-hop
+coverage (read from train_meta.json, produced by lineage_qagen).  Only the GRAPH
+is in context — no BFS-path hint (that's Exp 1).  The model reasons freely and we
+keep its trace ONLY when it actually reaches the correct answer; the resulting
+self-study dataset is the model's own correct reasoning, distilled into the
+cartridge.
 
-Only correct traces enter the dataset.  Two reports are written:
-  - star_survival.json  : fraction of questions that entered the training set
-                          (after retries), per n_bucket.
-  - icl_accuracy.json   : honest first-attempt accuracy, overall + per n_bucket.
+For each sampled question:
+  1. Attempt 0 (greedy): the model answers with free CoT.
+  2. Extract Yes/No; if it matches the gold label, keep the trace (with top-k
+     logprobs) as a training Conversation.
+  3. If wrong, retry (temperature rising) up to `--attempts-1` more times.  A
+     trace enters the dataset as soon as the model gets the answer right.
+
+No accuracy is reported here — the honest ICL baseline lives in Exp 0
+(evaluation/lineage_eval.py --mode icl).  We only report the per-n-hop
+collection yield (how many sampled questions produced a correct trace).
 
 Requires a running Tokasaurus server.  Set:
   $CARTRIDGES_TOKASAURUS_URL and $LINEAGE_SERVER_MODEL
 
 Output:
   {CARTRIDGES_OUTPUT_DIR_GRAPH2}/exp2_star/artifact/dataset.parquet
-  {CARTRIDGES_OUTPUT_DIR_GRAPH2}/exp2_star/star_survival.json
-  {CARTRIDGES_OUTPUT_DIR_GRAPH2}/exp2_star/icl_accuracy.json
+  {CARTRIDGES_OUTPUT_DIR_GRAPH2}/exp2_star/star_survival.json   (per-n-hop yield)
 
 Usage:
     python -m examples.graph_2.synthesis.star_synthesize              # 3 attempts (2 retries)
@@ -54,8 +58,7 @@ OUTPUT_DIR   = os.environ.get("CARTRIDGES_OUTPUT_DIR_GRAPH2", str(paths.OUTPUTS_
 TEMPERATURES = [0.0, 0.7, 0.9, 1.0]
 
 
-# Identical instruction to evaluation/lineage_eval.run_icl_eval, so attempt-0
-# greedy accuracy here == the Exp-0 ICL baseline.
+# Same instruction as evaluation/lineage_eval (graph in context, free CoT → Yes/No).
 _SYSTEM_TMPL = (
     "Use the family tree below to answer the lineage question. "
     "Reason step by step, then end with exactly 'Yes.' or 'No.'  "
@@ -120,11 +123,9 @@ async def run_star(
 
     pending   = list(meta_list)
     kept:     list[Conversation] = []
+    # Per n-hop collection yield: how many sampled questions produced a correct
+    # self-study trace that entered the training set (after up to `attempts`).
     survival: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "kept": 0})
-    # HONEST ICL accuracy = first attempt only (attempt 0, greedy).  Retries that
-    # later succeed grow the training set but never bump this — measuring the
-    # accuracy off a retry would be dishonest.
-    icl:      dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "correct": 0})
 
     for m in pending:
         survival[str(m["n_bucket"])]["total"] += 1
@@ -133,7 +134,7 @@ async def run_star(
         if not pending:
             break
         temp = TEMPERATURES[min(attempt, len(TEMPERATURES) - 1)]
-        tag = "ICL (honest, greedy)" if attempt == 0 else f"retry temp={temp}"
+        tag = "greedy" if attempt == 0 else f"retry temp={temp}"
         print(f"Attempt {attempt+1}/{attempts} [{tag}]: {len(pending)} pending")
 
         next_pending: list[dict] = []
@@ -150,21 +151,15 @@ async def run_star(
                 max_completion_tokens=1024,
                 temperature=temp,
                 top_logprobs=20,
-                enable_thinking=True,   # free-form CoT (matches ICL eval)
+                enable_thinking=True,   # free-form CoT reasoning
             )
             for m, sample in zip(batch_meta, resp.samples):
                 pred = extract_yes_no(sample.text)
                 correct = pred is not None and pred == m["label"]
-                bucket = str(m["n_bucket"])
-
-                if attempt == 0:
-                    # first-attempt = the reported ICL accuracy
-                    icl[bucket]["total"] += 1
-                    if correct:
-                        icl[bucket]["correct"] += 1
-
+                # Self-study rejection sampling: keep the trace iff the model
+                # actually reached the correct answer (on this or a prior retry).
                 if correct:
-                    survival[bucket]["kept"] += 1
+                    survival[str(m["n_bucket"])]["kept"] += 1
                     kept.append(_make_convo(m, sample, attempt, temp))
                 else:
                     next_pending.append(m)
@@ -172,7 +167,7 @@ async def run_star(
         pending = next_pending
 
     print(f"Done.  Kept {len(kept)} / {len(meta_list)} "
-          f"({len(kept)/max(1,len(meta_list)):.1%}) for training.")
+          f"({len(kept)/max(1,len(meta_list)):.1%}) correct self-study traces.")
 
     # Verify logprobs present for KL training
     n_no_logprobs = sum(1 for c in kept if c.messages[-1].top_logprobs is None)
@@ -200,40 +195,10 @@ async def run_star(
             "survival_rate": round(kept_n / max(1, total), 3),
         }
     survival_path.write_text(json.dumps(survival_dict, indent=2))
-    print(f"Survival report → {survival_path}")
-    print("\nSurvival per n_bucket (fraction that entered the training set):")
+    print(f"Yield report → {survival_path}")
+    print("\nCollection yield per n_bucket (correct traces / sampled questions):")
     for bucket, s in survival_dict.items():
         print(f"  n_bucket={bucket}: {s['kept']}/{s['total']} = {s['survival_rate']:.1%}")
-
-    # ── Honest ICL accuracy (first attempt only) ──────────────────────────────
-    def _bucket_sort_key(b: str):
-        return (b == "none", int(b) if b.isdigit() else 1_000_000)
-
-    icl_total   = sum(c["total"]   for c in icl.values())
-    icl_correct = sum(c["correct"] for c in icl.values())
-    icl_dict = {
-        "overall": {
-            "total":   icl_total,
-            "correct": icl_correct,
-            "acc":     round(icl_correct / max(1, icl_total), 4),
-        },
-        "per_n_bucket": {
-            bucket: {
-                "total":   c["total"],
-                "correct": c["correct"],
-                "acc":     round(c["correct"] / max(1, c["total"]), 4),
-            }
-            for bucket, c in sorted(icl.items(), key=lambda x: _bucket_sort_key(x[0]))
-        },
-    }
-    icl_path = output_dir / "exp2_star" / "icl_accuracy.json"
-    icl_path.write_text(json.dumps(icl_dict, indent=2))
-    print(f"\nICL accuracy report (first-attempt, honest) → {icl_path}")
-    print(f"Overall ICL acc: {icl_correct}/{icl_total} = "
-          f"{icl_correct/max(1,icl_total):.1%}")
-    print("Per n_bucket (true hop-distance):")
-    for bucket, c in icl_dict["per_n_bucket"].items():
-        print(f"  n={bucket:>4}: {c['correct']}/{c['total']} = {c['acc']:.1%}")
 
     return parquet_path
 
