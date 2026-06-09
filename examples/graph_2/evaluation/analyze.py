@@ -21,6 +21,9 @@ import json
 from pathlib import Path
 
 
+_NULL = (None, "?", "")  # predicted_yn values that mean "no parseable answer"
+
+
 def _load(path: str) -> list[dict]:
     return json.loads(Path(path).read_text())
 
@@ -29,6 +32,34 @@ def _acc(rows: list[dict]) -> float:
     if not rows:
         return float("nan")
     return sum(r["correct"] for r in rows) / len(rows)
+
+
+def _is_parsed(r: dict) -> bool:
+    return r.get("predicted_yn") not in _NULL
+
+
+def _n_unparsed(rows: list[dict]) -> int:
+    return sum(1 for r in rows if not _is_parsed(r))
+
+
+def _acc_parsed(rows: list[dict]) -> float:
+    """Accuracy among rows that produced a Yes/No (excludes truncated answers)."""
+    parsed = [r for r in rows if _is_parsed(r)]
+    if not parsed:
+        return float("nan")
+    return sum(r["correct"] for r in parsed) / len(parsed)
+
+
+def _frac_unparsed(rows: list[dict]) -> float:
+    return _n_unparsed(rows) / len(rows) if rows else float("nan")
+
+
+def _label(path: str) -> str:
+    """Short experiment label from a results path (the 'exp*' dir if present)."""
+    for part in Path(path).parts:
+        if part.startswith("exp"):
+            return part
+    return Path(path).parent.name
 
 
 def _pct(v: float) -> str:
@@ -41,9 +72,12 @@ def analyze_run(results: list[dict], label: str = "") -> dict:
     """Print a per-n-bucket report and return the per-bucket acc dict."""
     total  = len(results)
     n_ok   = sum(r["correct"] for r in results)
+    n_unp  = _n_unparsed(results)
     header = f"=== {label or 'RESULTS'} ==="
     print(f"\n{header}")
     print(f"Overall  {n_ok:4d}/{total} = {n_ok/total:.1%}")
+    print(f"Unparsed {n_unp:4d}/{total} = {_pct(_frac_unparsed(results))}"
+          f"   ·   acc(parsed only) = {_pct(_acc_parsed(results))}")
 
     # ── Per n_bucket ──────────────────────────────────────────────────────────
     buckets_raw = sorted(
@@ -51,16 +85,18 @@ def analyze_run(results: list[dict], label: str = "") -> dict:
         key=lambda x: (x is None or x == "none", x),
     )
     bucket_accs: dict[str, float] = {}
-    print(f"\n{'n_bucket':>10} {'N':>6} {'correct':>8} {'acc':>7}")
-    print("-" * 36)
+    print(f"\n{'n_bucket':>10} {'N':>6} {'correct':>8} {'acc':>7} {'none':>6} {'acc_par':>8}")
+    print("-" * 50)
     for b in buckets_raw:
         rows = [r for r in results if r["n_bucket"] == b]
         nc   = sum(r["correct"] for r in rows)
         acc  = nc / len(rows)
         bucket_accs[str(b)] = acc
-        print(f"{str(b):>10} {len(rows):>6} {nc:>8} {_pct(acc):>7}")
-    print("-" * 36)
-    print(f"{'total':>10} {total:>6} {n_ok:>8} {_pct(n_ok/total):>7}")
+        print(f"{str(b):>10} {len(rows):>6} {nc:>8} {_pct(acc):>7} "
+              f"{_n_unparsed(rows):>6} {_pct(_acc_parsed(rows)):>8}")
+    print("-" * 50)
+    print(f"{'total':>10} {total:>6} {n_ok:>8} {_pct(n_ok/total):>7} "
+          f"{n_unp:>6} {_pct(_acc_parsed(results)):>8}")
 
     # ── Per direction ─────────────────────────────────────────────────────────
     print("\nPer direction:")
@@ -104,19 +140,20 @@ def compare_summary(files: list[str]) -> None:
         key=lambda x: (x is None or x == "none", x),
     )
 
-    # Header
+    # Header: overall / acc among parsed / %unparsed, then per-n-hop acc
     col_w = 8
     b_headers = [f"n={str(b):>4}" for b in all_buckets]
-    header = f"{'file':<40} {'overall':>8} " + " ".join(b_headers)
+    header = (f"{'experiment':<18} {'overall':>8} {'acc_par':>8} {'%none':>6}  "
+              + " ".join(b_headers))
     print(f"\n{'='*len(header)}")
-    print("COMPARISON SUMMARY")
+    print("COMPARISON SUMMARY  (overall = raw acc · acc_par = acc among answered · %none = unparsed)")
     print("=" * len(header))
     print(header)
     print("-" * len(header))
 
     for path, rs in all_results:
-        overall = _acc(rs)
-        row = f"{Path(path).name:<40} {_pct(overall):>8}"
+        row = (f"{_label(path):<18} {_pct(_acc(rs)):>8} {_pct(_acc_parsed(rs)):>8} "
+               f"{_pct(_frac_unparsed(rs)):>6}  ")
         for b in all_buckets:
             rows_b = [r for r in rs if r["n_bucket"] == b]
             row += f" {_pct(_acc(rows_b)):>{col_w}}"
@@ -133,9 +170,8 @@ def main():
     bucket_accs_all: dict[str, dict] = {}
     for path in args.files:
         rs = _load(path)
-        label = Path(path).parent.name + "/" + Path(path).name
         if not args.no_detail:
-            bucket_accs_all[path] = analyze_run(rs, label)
+            bucket_accs_all[path] = analyze_run(rs, _label(path))
 
     if len(args.files) > 1:
         compare_summary(args.files)
