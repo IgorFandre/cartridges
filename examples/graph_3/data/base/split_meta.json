@@ -1,0 +1,66 @@
+{
+  "split_mode": "unordered_pair",
+  "seed": 42,
+  "max_hop": 8,
+  "train_max_hop": 6,
+  "test_per_hop": 100,
+  "train_per_hop": 300,
+  "train_nonrel_frac": 0.12,
+  "n_train": 2045,
+  "n_test": 900,
+  "buckets": {
+    "1": {
+      "pairs": 392,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "2": {
+      "pairs": 662,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "3": {
+      "pairs": 907,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "4": {
+      "pairs": 1139,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "5": {
+      "pairs": 1274,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "6": {
+      "pairs": 1259,
+      "test_questions": 100,
+      "train_questions": 300,
+      "unused_pairs": 0
+    },
+    "7": {
+      "pairs": 1228,
+      "test_questions": 100,
+      "train_questions": 0,
+      "unused_pairs": 1128
+    },
+    "8": {
+      "pairs": 1032,
+      "test_questions": 100,
+      "train_questions": 0,
+      "unused_pairs": 932
+    },
+    "none": {
+      "pairs": 345,
+      "test_questions": 100,
+      "train_questions": 245
+    }
+  }
+}
