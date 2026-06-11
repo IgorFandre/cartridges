@@ -19,12 +19,15 @@ mkdir -p "$OUT"
 
 LIMIT_ARGS=()
 [ -n "${LIMIT:-}" ] && LIMIT_ARGS=(--limit "$LIMIT")
+THINK_ARGS=()
+[ "${THINKING:-1}" = "1" ] && THINK_ARGS=(--thinking)
 
-echo "Exp 0 ICL → GPU $GPU · results → $OUT/results.json · log → $OUT/run.log"
+echo "Exp 0 ICL → GPU $GPU · thinking=${THINKING:-1} · results → $OUT/results.json · log → $OUT/run.log"
 CUDA_VISIBLE_DEVICES="$GPU" \
 python -m examples.graph_3.evaluation.eval \
   --mode icl \
   --output "$OUT/results.json" \
+  "${THINK_ARGS[@]}" \
   "${LIMIT_ARGS[@]}" \
   2>&1 | tee "$OUT/run.log"
 

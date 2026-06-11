@@ -52,6 +52,7 @@ async def run_exp2(
     extra_temp: float,
     batch_size: int,
     max_new_tokens: int,
+    enable_thinking: bool,
     output_dir: Path,
 ):
     from cartridges.structs import write_conversations
@@ -78,7 +79,7 @@ async def run_exp2(
                 max_completion_tokens=max_new_tokens,
                 temperature=temp,
                 top_logprobs=20,
-                enable_thinking=False,   # the scratchpad IS the reasoning (PLAN §3)
+                enable_thinking=enable_thinking,
             )
             for m, sample in zip(batch_meta, resp.samples):
                 correct = extract_answer(sample.text) == m["answer"]
@@ -122,6 +123,8 @@ def main():
     ap.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     ap.add_argument("--max-new-tokens", type=int, default=MAX_NEW_TOKENS)
     ap.add_argument("--limit",      type=int, default=None, help="Smoke test cap")
+    ap.add_argument("--thinking",   action="store_true",
+                    help="Enable Qwen3 <think> mode for the synthesis traces")
     ap.add_argument("--dry-run",    action="store_true",
                     help="Print one assembled prompt and exit (no server needed)")
     args = ap.parse_args()
@@ -154,6 +157,7 @@ def main():
         extra_temp=args.extra_temp,
         batch_size=args.batch_size,
         max_new_tokens=args.max_new_tokens,
+        enable_thinking=args.thinking,
         output_dir=Path(args.output_dir),
     ))
 
