@@ -39,6 +39,7 @@ OUTPUTS_DIR = Path(
 EXP0_DIR = OUTPUTS_DIR / "exp0_icl"
 EXP1_DIR = OUTPUTS_DIR / "exp1_adaptive"
 EXP2_DIR = OUTPUTS_DIR / "exp2_plain"
+EXP3_DIR = OUTPUTS_DIR / "exp3_rejection"
 
 
 # ── Checkpoint discovery ──────────────────────────────────────────────────────

@@ -1,11 +1,11 @@
 """
 Unified trainer for handshake-cartridge experiments.
 
-Select experiment with $EXP (exp1|exp2). Compression budget via $CARTRIDGE_TOKENS.
-Trains with KL logprob distillation (targets="logits").
+Select experiment with $EXP (exp1|exp2|exp3). Compression budget via
+$CARTRIDGE_TOKENS. Trains with KL logprob distillation (targets="logits").
 
 Env vars:
-  EXP                exp1 or exp2 (default exp1)
+  EXP                exp1 | exp2 | exp3 (default exp1)
   CARTRIDGE_TOKENS   token budget for KVFromText init (default 512; empty=full)
   EPOCHS             (default 10)
   LR                 (default 2e-2)
@@ -66,14 +66,20 @@ def _cartridge_tokens() -> int | None:
     return int(raw) if raw else None
 
 
+# exp → (output/discovery dir, the script that produces its dataset.parquet)
+EXP_DIRS = {
+    "exp1": paths.EXP1_DIR,   # exp1_synthesize  → adaptive hint
+    "exp2": paths.EXP2_DIR,   # exp2_synthesize  → plain, all traces
+    "exp3": paths.EXP3_DIR,   # exp3_build       → exp2 filtered by `correct`
+}
+EXP_BUILDERS = {"exp1": "exp1_synthesize", "exp2": "exp2_synthesize", "exp3": "exp3_build"}
+
+
 def _train_parquet_for(exp: str) -> Path:
-    """Locate the synthesized dataset.parquet for exp1 or exp2."""
-    if exp == "exp1":
-        root = paths.EXP1_DIR
-    elif exp == "exp2":
-        root = paths.EXP2_DIR        # exp2_synthesize writes EXP2_DIR/artifact/dataset.parquet
-    else:
-        raise ValueError(f"Unknown EXP={exp!r}. Use 'exp1' or 'exp2'.")
+    """Locate the synthesized dataset.parquet for exp1 / exp2 / exp3."""
+    root = EXP_DIRS.get(exp)
+    if root is None:
+        raise ValueError(f"Unknown EXP={exp!r}. Use {sorted(EXP_DIRS)}.")
 
     # Exclude the train/ subtree so we only match synthesized artifacts.
     hits = [
@@ -83,7 +89,7 @@ def _train_parquet_for(exp: str) -> Path:
     if not hits:
         raise FileNotFoundError(
             f"No artifact/dataset.parquet found under {root}. "
-            f"Run {'exp1_synthesize' if exp=='exp1' else 'exp2_synthesize'}.py first."
+            f"Run {EXP_BUILDERS[exp]}.py first."
         )
     # Use the most recently written
     return sorted(hits, key=lambda p: p.stat().st_mtime)[-1]
@@ -162,8 +168,8 @@ def build_config(
 
 
 # ── Build config(s) ───────────────────────────────────────────────────────────
-if EXP not in ("exp1", "exp2"):
-    raise ValueError(f"EXP={EXP!r} must be 'exp1' or 'exp2'.")
+if EXP not in EXP_DIRS:
+    raise ValueError(f"EXP={EXP!r} must be one of {sorted(EXP_DIRS)}.")
 
 tokens = _cartridge_tokens()
 tokens_tag = f"tok{tokens}" if tokens else "tokfull"
@@ -176,7 +182,7 @@ else:
     train_parquet = _train_parquet_for(EXP)
 test_parquet  = Path(TEST_PARQUET_OVERRIDE) if TEST_PARQUET_OVERRIDE else paths.BASE_TEST_PARQUET
 init_corpus   = Path(INIT_CORPUS_OVERRIDE)  if INIT_CORPUS_OVERRIDE  else paths.CORPUS_TXT
-output_dir    = (paths.EXP1_DIR if EXP == "exp1" else paths.EXP2_DIR) / "train"
+output_dir    = EXP_DIRS[EXP] / "train"
 run_name      = f"handshake-{EXP}-{tokens_tag}"
 
 config = build_config(

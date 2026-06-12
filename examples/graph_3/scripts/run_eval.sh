@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Full evaluation: Exp0 ICL + Exp1 cartridge + Exp2 cartridge → comparison table.
+# Full evaluation: Exp0 ICL + Exp1/Exp2/Exp3 cartridges → comparison table.
 #
-# Assumes the base forest + QA exist (data/base/) and that the two training runs
-# have produced checkpoints under outputs_graph3/{exp1_adaptive,exp2_plain}/train.
+# Assumes the base forest + QA exist (data/base/) and that the training runs have
+# produced checkpoints under
+# outputs_graph3/{exp1_adaptive,exp2_plain,exp3_rejection}/train.
 #
 # Thinking is ON by default (THINKING=1) to match synthesis/training-eval.
 #
@@ -13,6 +14,7 @@
 #   SKIP_exp0=1   skip ICL baseline
 #   SKIP_exp1=1   skip Exp 1 cartridge eval
 #   SKIP_exp2=1   skip Exp 2 cartridge eval
+#   SKIP_exp3=1   skip Exp 3 cartridge eval
 #   THINKING=0    disable Qwen3 <think> mode
 #   MODEL=qwen4b  model key (default qwen1.7b)
 #   LIMIT=N       evaluate only first N test questions (fast check)
@@ -85,12 +87,29 @@ else
     --output "$OUT/exp2_plain/eval/results.json"
 fi
 
+# ── Exp 3 — rejection-sampled cartridge ───────────────────────────────────────
+EXP3_CKPT="$(find_ckpt "$OUT/exp3_rejection/train")"
+if [ "${SKIP_exp3:-0}" = "1" ]; then
+  echo "── SKIP exp3 ──"
+elif [ -z "$EXP3_CKPT" ]; then
+  echo "!! exp3: no checkpoint under $OUT/exp3_rejection/train — skipping"
+else
+  echo ""; echo "══ exp3: cartridge eval (rejection sampling) ══"
+  echo "   checkpoint: $EXP3_CKPT"
+  CUDA_VISIBLE_DEVICES="$GPU" \
+  python -m examples.graph_3.evaluation.eval \
+    --mode cartridge --checkpoint "$EXP3_CKPT" --model "$MODEL" \
+    "${THINK_ARGS[@]}" "${LIMIT_ARGS[@]}" \
+    --output "$OUT/exp3_rejection/eval/results.json"
+fi
+
 # ── Comparison ────────────────────────────────────────────────────────────────
 echo ""; echo "══ comparison ══"
 FILES=()
 [ -f "$OUT/exp0_icl/results.json" ]          && FILES+=("$OUT/exp0_icl/results.json")
 [ -f "$OUT/exp1_adaptive/eval/results.json" ] && FILES+=("$OUT/exp1_adaptive/eval/results.json")
 [ -f "$OUT/exp2_plain/eval/results.json" ]   && FILES+=("$OUT/exp2_plain/eval/results.json")
+[ -f "$OUT/exp3_rejection/eval/results.json" ] && FILES+=("$OUT/exp3_rejection/eval/results.json")
 
 if [ "${#FILES[@]}" -ge 1 ]; then
   python -m examples.graph_3.evaluation.analyze "${FILES[@]}"
