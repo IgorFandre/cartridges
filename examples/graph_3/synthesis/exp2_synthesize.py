@@ -37,9 +37,9 @@ from pathlib import Path
 
 from examples.graph_3 import paths
 from examples.graph_3.synthesis.common import (
-    BATCH_SIZE, MAX_NEW_TOKENS, SERVER_MODEL, SERVER_URL,
-    batched, check_logprobs, load_train_meta, make_convo, save_report,
-    system_graph_prompt,
+    BATCH_SIZE, MAX_NEW_TOKENS, SERVER_MODEL, SERVER_URL, STEPBYSTEP_DIRECTIVE,
+    artifact_parquet, batched, check_logprobs, load_train_meta, make_convo,
+    report_path, save_report, system_graph_prompt,
 )
 
 
@@ -54,9 +54,14 @@ async def run_exp2(
     max_new_tokens: int,
     enable_thinking: bool,
     output_dir: Path,
+    stepbystep: bool = False,
 ):
     from cartridges.structs import write_conversations
     from examples.graph_3.evaluation.eval import extract_answer
+
+    # system_prompt already carries STEPBYSTEP_DIRECTIVE when stepbystep is set
+    # (appended by main); `stepbystep` here only selects the output filename.
+    prompt = system_prompt
 
     kept = []
     report: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "correct": 0})
@@ -69,7 +74,7 @@ async def run_exp2(
         for batch_meta in batched(meta_list, batch_size):
             chats = [
                 [
-                    {"role": "system", "content": system_prompt},
+                    {"role": "system", "content": prompt},
                     {"role": "user",   "content": m["question"]},
                 ]
                 for m in batch_meta
@@ -96,9 +101,7 @@ async def run_exp2(
           f"({n_correct}/{n_total} = {n_correct / max(1, n_total):.1%} correct — recorded, not filtered).")
     check_logprobs(kept)
 
-    artifact_dir = output_dir / "exp2_plain" / "artifact"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = artifact_dir / "dataset.parquet"
+    parquet_path = artifact_parquet(output_dir, "exp2_plain", stepbystep)
     write_conversations(kept, str(parquet_path))
     print(f"Saved → {parquet_path}")
 
@@ -106,7 +109,7 @@ async def run_exp2(
         bucket: {**counts, "correct_rate": round(counts["correct"] / max(1, counts["total"]), 3)}
         for bucket, counts in sorted(report.items(), key=lambda x: (x[0] == "none", x[0]))
     }
-    save_report(report_out, output_dir / "exp2_plain" / "collection_report.json")
+    save_report(report_out, report_path(output_dir, "exp2_plain", "collection_report", stepbystep))
     print("\nTrain-set correctness per bucket (proxy ICL accuracy, NOT a filter):")
     for bucket, s in report_out.items():
         print(f"  n={bucket}: {s['correct']}/{s['total']} = {s['correct_rate']:.1%}")
@@ -127,11 +130,17 @@ def main():
                     help="Enable Qwen3 <think> mode for the synthesis traces")
     ap.add_argument("--dry-run",    action="store_true",
                     help="Print one assembled prompt and exit (no server needed)")
+    ap.add_argument("--stepbystep", action="store_true",
+                    help="Ask for full step-by-step search; write to "
+                         "dataset_stepbystep.parquet (does not overwrite the default)")
     args = ap.parse_args()
 
     meta_list = load_train_meta(args.train_meta, args.limit)
     system_prompt = system_graph_prompt(Path(args.corpus).read_text())
-    print(f"Questions: {len(meta_list)}  ·  system prompt: {len(system_prompt)} chars")
+    if args.stepbystep:
+        system_prompt += STEPBYSTEP_DIRECTIVE
+    print(f"Questions: {len(meta_list)}  ·  system prompt: {len(system_prompt)} chars"
+          f"  ·  stepbystep={args.stepbystep}")
 
     if args.dry_run:
         m = meta_list[0]
@@ -159,6 +168,7 @@ def main():
         max_new_tokens=args.max_new_tokens,
         enable_thinking=args.thinking,
         output_dir=Path(args.output_dir),
+        stepbystep=args.stepbystep,
     ))
 
 

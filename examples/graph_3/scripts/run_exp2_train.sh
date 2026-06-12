@@ -21,10 +21,11 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 cd "$REPO_ROOT"
 
-DATASET="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/artifact/dataset.parquet"
+DSNAME="dataset.parquet"; [ "${STEPBYSTEP:-0}" = "1" ] && DSNAME="dataset_stepbystep.parquet"
+DATASET="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/artifact/$DSNAME"
 if [ ! -f "$DATASET" ]; then
   echo "ERROR: exp2 dataset not found: $DATASET"
-  echo "Run synthesis first:  bash $SCRIPT_DIR/run_exp2_synth.sh"
+  echo "Run synthesis first:  STEPBYSTEP=${STEPBYSTEP:-0} bash $SCRIPT_DIR/run_exp2_synth.sh"
   exit 1
 fi
 
@@ -35,13 +36,15 @@ else
   TRAIN_CMD=(python)
 fi
 
-OUT="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/train"
+TRAINSUB="train"; [ "${STEPBYSTEP:-0}" = "1" ] && TRAINSUB="train_stepbystep"
+OUT="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/$TRAINSUB"
 mkdir -p "$OUT"
 
-echo "Exp 2 train · dataset=$DATASET · tokens=${CARTRIDGE_TOKENS:-512} · steps=${MAX_STEPS:-200} · log → $OUT/train.log"
+echo "Exp 2 train · dataset=$DATASET · tokens=${CARTRIDGE_TOKENS:-512} · steps=${MAX_STEPS:-200} · stepbystep=${STEPBYSTEP:-0} · log → $OUT/train.log"
 EXP=exp2 \
 CARTRIDGE_TOKENS="${CARTRIDGE_TOKENS:-512}" \
 MAX_STEPS="${MAX_STEPS:-200}" \
 N_EVALS="${N_EVALS:-4}" \
+STEPBYSTEP="${STEPBYSTEP:-0}" \
 "${TRAIN_CMD[@]}" -m examples.graph_3.training.lineage_train \
   2>&1 | tee "$OUT/train.log"

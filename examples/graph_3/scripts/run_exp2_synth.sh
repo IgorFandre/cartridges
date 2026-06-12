@@ -30,11 +30,14 @@ LIMIT_ARGS=()
 [ -n "${LIMIT:-}" ] && LIMIT_ARGS=(--limit "$LIMIT")
 THINK_ARGS=()
 [ "${THINKING:-1}" = "1" ] && THINK_ARGS=(--thinking)
+SBS_ARGS=()
+[ "${STEPBYSTEP:-0}" = "1" ] && SBS_ARGS=(--stepbystep)   # → dataset_stepbystep.parquet
 
-echo "Exp 2 synthesis → server $CARTRIDGES_TOKASAURUS_URL · thinking=${THINKING:-1} · log → $OUT/synth.log"
+echo "Exp 2 synthesis → server $CARTRIDGES_TOKASAURUS_URL · thinking=${THINKING:-1} · stepbystep=${STEPBYSTEP:-0} · log → $OUT/synth.log"
 python -m examples.graph_3.synthesis.exp2_synthesize \
   --output-dir "$CARTRIDGES_OUTPUT_DIR_GRAPH3" \
   --samples-per-question "${SAMPLES_PER_Q:-1}" \
   "${THINK_ARGS[@]}" \
+  "${SBS_ARGS[@]}" \
   "${LIMIT_ARGS[@]}" \
   2>&1 | tee "$OUT/synth.log"

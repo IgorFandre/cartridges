@@ -12,18 +12,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 cd "$REPO_ROOT"
 
-SOURCE="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/artifact/dataset.parquet"
+SBS_ARGS=(); DSNAME="dataset.parquet"
+if [ "${STEPBYSTEP:-0}" = "1" ]; then SBS_ARGS=(--stepbystep); DSNAME="dataset_stepbystep.parquet"; fi
+
+SOURCE="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp2_plain/artifact/$DSNAME"
 if [ ! -f "$SOURCE" ]; then
   echo "ERROR: exp2 dataset not found: $SOURCE"
-  echo "Run exp2 synthesis first:  bash $SCRIPT_DIR/run_exp2_synth.sh"
+  echo "Run exp2 synthesis first:  STEPBYSTEP=${STEPBYSTEP:-0} bash $SCRIPT_DIR/run_exp2_synth.sh"
   exit 1
 fi
 
 OUT="$CARTRIDGES_OUTPUT_DIR_GRAPH3/exp3_rejection"
 mkdir -p "$OUT"
 
-echo "Exp 3 build · filter $SOURCE by correct=True · log → $OUT/build.log"
+echo "Exp 3 build · filter $SOURCE by correct=True · stepbystep=${STEPBYSTEP:-0} · log → $OUT/build.log"
 python -m examples.graph_3.synthesis.exp3_build \
   --source "$SOURCE" \
   --output-dir "$CARTRIDGES_OUTPUT_DIR_GRAPH3" \
+  "${SBS_ARGS[@]}" \
   2>&1 | tee "$OUT/build.log"

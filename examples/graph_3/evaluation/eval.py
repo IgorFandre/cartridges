@@ -238,6 +238,11 @@ def run_icl_eval(args, index: GraphIndex) -> List[dict]:
             "  python -m examples.graph_3.data_gen.qagen"
         )
     system_prompt = _SYSTEM_INSTRUCTION.format(corpus=corpus_path.read_text())
+    if getattr(args, "stepbystep", False):
+        # Same directive as the stepbystep synthesis datasets, so the ICL
+        # baseline can be compared on equal footing.
+        from examples.graph_3.synthesis.common import STEPBYSTEP_DIRECTIVE
+        system_prompt += STEPBYSTEP_DIRECTIVE
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForCausalLM.from_pretrained(
@@ -410,6 +415,9 @@ def main():
     ap.add_argument("--limit",         type=int,   default=None)
     ap.add_argument("--thinking",      action="store_true",
                     help="Enable Qwen3 <think> mode (off by default, PLAN.md §3)")
+    ap.add_argument("--stepbystep",    action="store_true",
+                    help="ICL mode: append the step-by-step search directive to the "
+                         "system prompt (same wording as the stepbystep datasets)")
     ap.add_argument("--rerun-unparsed", default=None,
                     help="Path to a prior results.json: re-evaluate ONLY the questions "
                          "whose predicted_answer is null, merge the fresh answers back "

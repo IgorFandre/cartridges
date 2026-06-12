@@ -41,6 +41,9 @@ MAX_STEPS  = int(os.environ.get("MAX_STEPS", "200"))
 SAVE_EVERY = int(os.environ.get("SAVE_EVERY", str(max(1, MAX_STEPS))))
 N_EVALS    = int(os.environ.get("N_EVALS", "4"))
 SEED       = int(os.environ.get("SEED",    "42"))
+# STEPBYSTEP=1 trains on the dataset_stepbystep.parquet variant (full-search
+# traces) instead of the default dataset.parquet.
+STEPBYSTEP = os.environ.get("STEPBYSTEP", "").strip() in ("1", "true", "True")
 
 _eval_limit_raw = os.environ.get("EVAL_LIMIT", "").strip()
 EVAL_LIMIT = int(_eval_limit_raw) if _eval_limit_raw else None
@@ -76,20 +79,25 @@ EXP_BUILDERS = {"exp1": "exp1_synthesize", "exp2": "exp2_synthesize", "exp3": "e
 
 
 def _train_parquet_for(exp: str) -> Path:
-    """Locate the synthesized dataset.parquet for exp1 / exp2 / exp3."""
+    """Locate the synthesized dataset parquet for exp1 / exp2 / exp3.
+
+    With STEPBYSTEP it looks for dataset_stepbystep.parquet (the full-search
+    variant) instead of the default dataset.parquet.
+    """
     root = EXP_DIRS.get(exp)
     if root is None:
         raise ValueError(f"Unknown EXP={exp!r}. Use {sorted(EXP_DIRS)}.")
 
+    fname = "dataset_stepbystep.parquet" if STEPBYSTEP else "dataset.parquet"
     # Exclude the train/ subtree so we only match synthesized artifacts.
     hits = [
-        p for p in (root.rglob("artifact/dataset.parquet") if root.exists() else [])
+        p for p in (root.rglob(f"artifact/{fname}") if root.exists() else [])
         if "train" not in p.relative_to(root).parts
     ]
     if not hits:
         raise FileNotFoundError(
-            f"No artifact/dataset.parquet found under {root}. "
-            f"Run {EXP_BUILDERS[exp]}.py first."
+            f"No artifact/{fname} found under {root}. "
+            f"Run {EXP_BUILDERS[exp]}.py{' --stepbystep' if STEPBYSTEP else ''} first."
         )
     # Use the most recently written
     return sorted(hits, key=lambda p: p.stat().st_mtime)[-1]
@@ -182,8 +190,9 @@ else:
     train_parquet = _train_parquet_for(EXP)
 test_parquet  = Path(TEST_PARQUET_OVERRIDE) if TEST_PARQUET_OVERRIDE else paths.BASE_TEST_PARQUET
 init_corpus   = Path(INIT_CORPUS_OVERRIDE)  if INIT_CORPUS_OVERRIDE  else paths.CORPUS_TXT
-output_dir    = EXP_DIRS[EXP] / "train"
-run_name      = f"handshake-{EXP}-{tokens_tag}"
+variant_tag   = "-sbs" if STEPBYSTEP else ""
+output_dir    = EXP_DIRS[EXP] / ("train_stepbystep" if STEPBYSTEP else "train")
+run_name      = f"handshake-{EXP}{variant_tag}-{tokens_tag}"
 
 config = build_config(
     exp=EXP,

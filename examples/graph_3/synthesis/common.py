@@ -49,6 +49,36 @@ def system_graph_prompt(corpus_text: str) -> str:
     return _SYSTEM_INSTRUCTION.format(corpus=corpus_text)
 
 
+# Step-by-step directive (the "stepbystep" dataset variant). Appended to the
+# graph prompt so the model narrates the WHOLE search instead of jumping to the
+# answer — addresses the shortcut traces seen in the default dataset (≈20% of
+# deep-hop hint traces just copied `path:`/`Answer:` from the scratchpad tail).
+STEPBYSTEP_DIRECTIVE = (
+    "\n\nThink step by step and SHOW your full search. Starting from the first "
+    "person, expand the friendship list one handshake at a time — list who is 1 "
+    "handshake away, then 2, then 3, and so on, level by level — until you reach "
+    "the second person. Write out every level of this search. Do NOT state the "
+    'path or the final number until you have worked through the whole search, '
+    'then finish with the "path:" line and the "Answer:" line.'
+)
+
+
+def artifact_parquet(output_dir: Path, exp_subdir: str, stepbystep: bool) -> Path:
+    """Path to an experiment's dataset parquet; the stepbystep variant writes to
+    a separate `dataset_stepbystep.parquet` so it never overwrites the default."""
+    name = "dataset_stepbystep.parquet" if stepbystep else "dataset.parquet"
+    d = Path(output_dir) / exp_subdir / "artifact"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / name
+
+
+def report_path(output_dir: Path, exp_subdir: str, base_name: str, stepbystep: bool) -> Path:
+    """`<base>.json` or `<base>_stepbystep.json` under the experiment dir."""
+    stem = base_name[:-5] if base_name.endswith(".json") else base_name
+    suffix = "_stepbystep" if stepbystep else ""
+    return Path(output_dir) / exp_subdir / f"{stem}{suffix}.json"
+
+
 def make_convo(meta: dict, sample, *, source: str, correct: bool, temp: float) -> Conversation:
     """Training Conversation: empty system (the corpus lives in the cartridge),
     user = question, assistant = the model's own trace with top-k logprobs."""

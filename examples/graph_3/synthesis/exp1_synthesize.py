@@ -41,9 +41,9 @@ from pathlib import Path
 from examples.graph_3 import paths
 from examples.graph_3.data_gen.graph_index import GraphIndex
 from examples.graph_3.synthesis.common import (
-    BATCH_SIZE, MAX_NEW_TOKENS, SERVER_MODEL, SERVER_URL,
-    batched, check_logprobs, load_train_meta, make_convo, save_report,
-    system_graph_prompt,
+    BATCH_SIZE, MAX_NEW_TOKENS, SERVER_MODEL, SERVER_URL, STEPBYSTEP_DIRECTIVE,
+    artifact_parquet, batched, check_logprobs, load_train_meta, make_convo,
+    report_path, save_report, system_graph_prompt,
 )
 
 _HINT_TMPL = (
@@ -53,16 +53,33 @@ _HINT_TMPL = (
     "Use it to answer the question correctly, showing the search the same way."
 )
 
+# Stronger instruction for the stepbystep variant: force the model to REPRODUCE
+# the whole search rather than copy the answer from the scratchpad tail.
+_HINT_TMPL_STEPBYSTEP = (
+    "{base}\n\n"
+    "A worked breadth-first search for this exact question:\n"
+    "{scratchpad}\n\n"
+    "Re-run this search yourself, step by step. In your reply you MUST reproduce "
+    "every queue pop and push IN ORDER, exactly as shown above, narrating the "
+    "frontier as it grows. Do NOT skip ahead, and do NOT state the path or the "
+    "final number until you have walked the entire search to the target. Only "
+    'after the full trace, end with the "path:" line and the "Answer:" line.'
+)
 
-def hint_prompt(base_prompt: str, index: GraphIndex, m: dict, seed: int) -> str:
+
+def hint_prompt(
+    base_prompt: str, index: GraphIndex, m: dict, seed: int, stepbystep: bool = False
+) -> str:
     """System prompt with the corpus AND the worked scratchpad for this pair.
 
     The rng is seeded per-question so reruns are reproducible while
-    within-level neighbor order still varies across questions.
+    within-level neighbor order still varies across questions. With
+    ``stepbystep`` the instruction forces full reproduction of the search.
     """
     rng = random.Random(f"{seed}:{m['x']}:{m['y']}")
     scratchpad = index.scratchpad(m["x"], m["y"], rng)
-    return _HINT_TMPL.format(base=base_prompt, scratchpad=scratchpad)
+    tmpl = _HINT_TMPL_STEPBYSTEP if stepbystep else _HINT_TMPL
+    return tmpl.format(base=base_prompt, scratchpad=scratchpad)
 
 
 async def run_exp1(
@@ -76,9 +93,14 @@ async def run_exp1(
     seed: int,
     enable_thinking: bool,
     output_dir: Path,
+    stepbystep: bool = False,
 ):
     from cartridges.structs import write_conversations
     from examples.graph_3.evaluation.eval import extract_answer
+
+    # In stepbystep mode the no-hint phase is also asked to narrate the full
+    # search (the hint phase uses the stronger reproduce-the-scratchpad template).
+    phase1_prompt = base_prompt + STEPBYSTEP_DIRECTIVE if stepbystep else base_prompt
 
     kept = []
     report: dict[str, dict[str, int]] = defaultdict(
@@ -93,7 +115,7 @@ async def run_exp1(
     for batch_meta in batched(meta_list, batch_size):
         chats = [
             [
-                {"role": "system", "content": base_prompt},
+                {"role": "system", "content": phase1_prompt},
                 {"role": "user",   "content": m["question"]},
             ]
             for m in batch_meta
@@ -121,7 +143,7 @@ async def run_exp1(
     for batch_meta in batched(need_hint, batch_size):
         chats = [
             [
-                {"role": "system", "content": hint_prompt(base_prompt, index, m, seed)},
+                {"role": "system", "content": hint_prompt(base_prompt, index, m, seed, stepbystep)},
                 {"role": "user",   "content": m["question"]},
             ]
             for m in batch_meta
@@ -149,9 +171,7 @@ async def run_exp1(
           f"{n_fixed} fixed by hint, {n_bad} still wrong (kept, flagged).")
     check_logprobs(kept)
 
-    artifact_dir = output_dir / "exp1_adaptive" / "artifact"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = artifact_dir / "dataset.parquet"
+    parquet_path = artifact_parquet(output_dir, "exp1_adaptive", stepbystep)
     write_conversations(kept, str(parquet_path))
     print(f"Saved → {parquet_path}")
 
@@ -162,7 +182,7 @@ async def run_exp1(
             "no_hint_rate":    round(c["no_hint_correct"] / max(1, c["total"]), 3),
             "still_wrong_rate": round(c["still_wrong"] / max(1, c["total"]), 3),
         }
-    save_report(report_out, output_dir / "exp1_adaptive" / "adaptive_report.json")
+    save_report(report_out, report_path(output_dir, "exp1_adaptive", "adaptive_report", stepbystep))
     print("\nPer bucket: correct without hint / fixed by hint / still wrong (of total):")
     for bucket, s in report_out.items():
         print(f"  n={bucket}: {s['no_hint_correct']}/{s['hint_fixed']}/{s['still_wrong']} "
@@ -183,6 +203,9 @@ def main():
                     help="Enable Qwen3 <think> mode for the synthesis traces")
     ap.add_argument("--dry-run",    action="store_true",
                     help="Print one assembled hint prompt and exit (no server needed)")
+    ap.add_argument("--stepbystep", action="store_true",
+                    help="Force full step-by-step search reproduction; write to "
+                         "dataset_stepbystep.parquet (does not overwrite the default)")
     args = ap.parse_args()
 
     meta_list = load_train_meta(args.train_meta, args.limit)
@@ -192,8 +215,8 @@ def main():
 
     if args.dry_run:
         m = next(mm for mm in meta_list if mm["n_bucket"] not in ("none", "1"))
-        full = hint_prompt(base_prompt, index, m, args.seed)
-        print("\n--- hint system prompt (corpus truncated) ---")
+        full = hint_prompt(base_prompt, index, m, args.seed, args.stepbystep)
+        print(f"\n--- hint system prompt (stepbystep={args.stepbystep}, corpus truncated) ---")
         head, _, tail = full.partition("A worked breadth-first search")
         print(head[:300] + " ...\n")
         print("A worked breadth-first search" + tail)
@@ -219,6 +242,7 @@ def main():
         seed=args.seed,
         enable_thinking=args.thinking,
         output_dir=Path(args.output_dir),
+        stepbystep=args.stepbystep,
     ))
 
 

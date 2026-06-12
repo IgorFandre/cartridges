@@ -39,8 +39,9 @@ def _is_correct(meta: dict) -> bool:
     return v in (True, 1, "True", "true", "1")
 
 
-def build_exp3(source: Path, output_dir: Path) -> Path:
+def build_exp3(source: Path, output_dir: Path, stepbystep: bool = False) -> Path:
     from cartridges.structs import read_conversations, write_conversations
+    from examples.graph_3.synthesis.common import artifact_parquet, report_path
 
     convos = read_conversations(str(source))
     report: dict[str, dict[str, int]] = defaultdict(lambda: {"total": 0, "kept": 0})
@@ -59,9 +60,7 @@ def build_exp3(source: Path, output_dir: Path) -> Path:
             "Check that exp2 synthesis recorded the `correct` metadata flag."
         )
 
-    artifact_dir = output_dir / "exp3_rejection" / "artifact"
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-    parquet_path = artifact_dir / "dataset.parquet"
+    parquet_path = artifact_parquet(output_dir, "exp3_rejection", stepbystep)
     write_conversations(kept, str(parquet_path))
 
     n_missing_lp = sum(1 for c in kept if c.messages[-1].top_logprobs is None)
@@ -75,7 +74,7 @@ def build_exp3(source: Path, output_dir: Path) -> Path:
         bucket: {**counts, "keep_rate": round(counts["kept"] / max(1, counts["total"]), 3)}
         for bucket, counts in sorted(report.items(), key=lambda x: (x[0] == "none", x[0]))
     }
-    save_report(report_out, output_dir / "exp3_rejection" / "filter_report.json")
+    save_report(report_out, report_path(output_dir, "exp3_rejection", "filter_report", stepbystep))
 
     print(f"\nKept {len(kept)}/{len(convos)} correct traces → {parquet_path}")
     print("Per bucket: kept / total (keep rate):")
@@ -96,19 +95,25 @@ def build_exp3(source: Path, output_dir: Path) -> Path:
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", type=str,
-                    default=str(paths.EXP2_DIR / "artifact" / "dataset.parquet"),
-                    help="exp2_plain dataset.parquet to filter")
+    ap.add_argument("--source", type=str, default=None,
+                    help="exp2_plain parquet to filter (default: matches --stepbystep)")
     ap.add_argument("--output-dir", type=str, default=str(paths.OUTPUTS_DIR))
+    ap.add_argument("--stepbystep", action="store_true",
+                    help="Filter the stepbystep exp2 dataset → exp3 dataset_stepbystep.parquet")
     args = ap.parse_args()
 
-    source = Path(args.source)
+    if args.source:
+        source = Path(args.source)
+    else:
+        name = "dataset_stepbystep.parquet" if args.stepbystep else "dataset.parquet"
+        source = paths.EXP2_DIR / "artifact" / name
     if not source.exists():
         raise FileNotFoundError(
             f"exp2 dataset not found: {source}\n"
             "Run exp2 synthesis first:  python -m examples.graph_3.synthesis.exp2_synthesize"
+            + (" --stepbystep" if args.stepbystep else "")
         )
-    build_exp3(source, Path(args.output_dir))
+    build_exp3(source, Path(args.output_dir), stepbystep=args.stepbystep)
 
 
 if __name__ == "__main__":
