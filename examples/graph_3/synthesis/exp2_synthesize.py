@@ -37,7 +37,7 @@ from pathlib import Path
 
 from examples.graph_3 import paths
 from examples.graph_3.synthesis.common import (
-    BATCH_SIZE, MAX_NEW_TOKENS, SERVER_MODEL, SERVER_URL, STEPBYSTEP_DIRECTIVE,
+    BATCH_SIZE, MAX_NEW_TOKENS, STEPBYSTEP_DIRECTIVE,
     artifact_parquet, batched, check_logprobs, load_train_meta, make_convo,
     report_path, save_report, system_graph_prompt,
 )
@@ -151,12 +151,9 @@ def main():
         print(f"\ngold: {m['answer']}")
         return
 
-    from cartridges.clients.tokasaurus import TokasaurusClient
+    from examples.graph_3.synthesis.common import make_client
 
-    client = TokasaurusClient.Config(
-        url=SERVER_URL,
-        model_name=SERVER_MODEL,
-    ).instantiate()
+    client = make_client()
 
     asyncio.run(run_exp2(
         meta_list=meta_list,

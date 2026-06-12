@@ -23,6 +23,25 @@ BATCH_SIZE   = int(os.environ.get("BATCH_SIZE", "32"))
 # Push/pop scratchpads reach ~2.7k tokens — give generation headroom (PLAN §5).
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "4096"))
 
+# Client request timeout (seconds) for the FIRST attempt; it grows ×1.5 per
+# retry. The default of 90s is too short when long (4k-token) generations share
+# the GPU with another synthesis — each request then decodes at ~35 tok/s and a
+# 4k generation takes >100s, tripping a needless TimeoutError + retry (which
+# re-does the work on the server). Bump it for parallel / long-trace runs.
+CLIENT_BASE_TIMEOUT = int(os.environ.get("CLIENT_BASE_TIMEOUT", "300"))
+
+
+def make_client(url: str = SERVER_URL, model: str = SERVER_MODEL):
+    """Tokasaurus client with a longer first-attempt timeout (CLIENT_BASE_TIMEOUT)
+    so long generations under shared GPU load don't trip needless retries."""
+    from cartridges.clients.tokasaurus import TokasaurusClient
+
+    return TokasaurusClient.Config(
+        url=url,
+        model_name=model,
+        base_timeout=CLIENT_BASE_TIMEOUT,
+    ).instantiate()
+
 
 def batched(items: list, size: int) -> Iterator[list]:
     for i in range(0, len(items), size):
