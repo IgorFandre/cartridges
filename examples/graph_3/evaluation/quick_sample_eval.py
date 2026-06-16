@@ -1,13 +1,14 @@
 """
-Quick per-hop sample eval — generate answers for a SHARED, fixed set of test
-questions across one or more cartridges and dump the full reasoning + answers +
-correctness to a .log per cartridge.
+Quick per-hop sample eval — dump RAW cartridge generations (no parsing, no
+scoring) for a SHARED, fixed set of test questions, into one JSON per cartridge.
+Each record also carries the gold answer + gold path pulled from the test set,
+so you can eyeball whether the generation is right by hand.
 
 Built for "I won't have time for the full eval before the call" — it samples
 `--per-hop` questions from EACH hop bucket (1..8 + `none`) with a FIXED seed, so:
   • the same questions are asked of every cartridge in a single run, AND
   • the same questions are asked across SEPARATE runs of this script
-    (you can eval cartridges in batches and the logs stay comparable).
+    (you can eval cartridges in batches and the JSONs stay comparable).
 
 The base Qwen3 model is loaded ONCE and reused; only the TrainableCache is
 swapped per cartridge. Thinking is OFF by default (PLAN.md §3 — the push/pop
@@ -25,10 +26,11 @@ Usage:
 
 A checkpoint arg may be a .pt file OR a directory (then cache_last.pt under it).
 
-Logs land in --out-dir (default outputs_graph3/quick_eval/):
-    <label>.log          full reasoning + per-question correctness + summary
-    selected_questions.json   the 18 chosen questions (written every run; identical)
-    _summary.log              appended cross-cartridge acc-per-hop table per run
+Output (in --out-dir, default outputs_graph3/quick_eval/):
+    <label>.json              {cartridge, checkpoint, ..., generations: [...]}
+                              each generation has the raw model text + gold
+                              answer/path from the dataset (NO parsing/scoring).
+    selected_questions.json   the chosen questions (written every run; identical).
 """
 from __future__ import annotations
 
@@ -92,19 +94,22 @@ def resolve_checkpoint(raw: str) -> Path:
     return p
 
 
-# ── Per-cartridge evaluation ──────────────────────────────────────────────────
-def eval_cartridge(ckpt: Path, tokenizer, model, device: str,
-                   questions: list[dict], index, args) -> list[dict]:
-    """Generate + score the shared questions for a single cartridge."""
+# ── Per-cartridge generation (raw, no scoring) ────────────────────────────────
+def generate_cartridge(ckpt: Path, tokenizer, model, device: str,
+                       questions: list[dict], args) -> list[dict]:
+    """Generate the shared questions for one cartridge; return raw records.
+
+    No answer extraction / scoring — each record just holds the raw model text
+    plus the gold answer + gold path copied straight from the test meta.
+    """
     import torch
     from cartridges.cache import TrainableCache
     from cartridges.generation import flex_generate
     from examples.graph.evaluation.eval import build_inputs
-    from examples.graph_3.evaluation.eval import score_row
 
     cache: TrainableCache = TrainableCache.from_pretrained(str(ckpt), device=device).to(device)
 
-    rows: list[dict] = []
+    records: list[dict] = []
     for i in range(0, len(questions), args.batch_size):
         batch_meta = questions[i : i + args.batch_size]
         qs = [m["question"] for m in batch_meta]
@@ -121,100 +126,22 @@ def eval_cartridge(ckpt: Path, tokenizer, model, device: str,
                 temperature=args.temperature, show_progress=False,
             )
         for m, ids in zip(batch_meta, pred_ids):
-            pred_text = tokenizer.decode(ids, skip_special_tokens=True)
-            rows.append(score_row(m, pred_text, index))
+            generation = tokenizer.decode(ids, skip_special_tokens=True)
+            records.append({
+                "n_bucket":      str(m["n_bucket"]),
+                "true_distance": m.get("true_distance"),
+                "x":             m.get("x"),
+                "y":             m.get("y"),
+                "question":      m["question"],
+                "gold_answer":   m.get("answer"),     # "3" | "not connected"
+                "gold_path":     m.get("path"),       # list[str] | None
+                "generation":    generation,          # RAW model output
+            })
 
     del cache
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    return rows
-
-
-# ── Log formatting ────────────────────────────────────────────────────────────
-def _bucket_order(buckets) -> list[str]:
-    return sorted(buckets, key=lambda b: (b == "none", b))
-
-
-def write_cartridge_log(out_path: Path, label: str, ckpt: Path,
-                        rows: list[dict], args) -> dict[str, tuple[int, int]]:
-    """Write the full reasoning + correctness log; return per-bucket (ok, n)."""
-    lines: list[str] = []
-    lines.append("=" * 80)
-    lines.append(f"CARTRIDGE: {label}")
-    lines.append(f"checkpoint: {ckpt}")
-    lines.append(
-        f"model: {args.model}  thinking={args.thinking}  temp={args.temperature}  "
-        f"max_new_tokens={args.max_new_tokens}"
-    )
-    lines.append(
-        f"questions: {len(rows)} ({args.per_hop} per hop, seed={args.seed})"
-    )
-    lines.append("=" * 80)
-    lines.append("")
-
-    per_bucket: dict[str, list[bool]] = defaultdict(list)
-    for r in rows:
-        b = str(r["n_bucket"])
-        per_bucket[b].append(bool(r["correct"]))
-
-        hop = "not-connected" if b == "none" else f"{b} hop(s)"
-        lines.append(f"[hop {b}] ({hop})")
-        lines.append(f"  Q: {r['question']}")
-        lines.append(f"  gold_answer: {r['gold_answer']}   gold_path: {r['gold_path']}")
-        lines.append(
-            f"  predicted_answer: {r['predicted_answer']}   "
-            f"correct: {r['correct']}   "
-            f"path_valid: {r['path_valid']}   abs_err: {r['abs_err']}"
-        )
-        lines.append("  --- reasoning / scratchpad ---")
-        # indent the raw model output for readability
-        body = r["predicted"] or "(empty)"
-        lines.extend("  " + ln for ln in body.splitlines() or ["(empty)"])
-        lines.append("  --- end ---")
-        lines.append("")
-
-    # per-cartridge summary table
-    total_ok = sum(r["correct"] for r in rows)
-    lines.append("-" * 48)
-    lines.append(f"SUMMARY  {label}")
-    lines.append(f"{'bucket':>8} {'N':>4} {'acc':>7}")
-    summary: dict[str, tuple[int, int]] = {}
-    for b in _bucket_order(per_bucket):
-        oks = per_bucket[b]
-        ok, n = sum(oks), len(oks)
-        summary[b] = (ok, n)
-        lines.append(f"{b:>8} {n:>4} {f'{ok}/{n}':>7}")
-    lines.append(f"{'OVERALL':>8} {len(rows):>4} {f'{total_ok}/{len(rows)}':>7}")
-    lines.append("")
-
-    out_path.write_text("\n".join(lines), encoding="utf-8")
-    return summary
-
-
-def print_and_append_run_summary(out_dir: Path, results: dict[str, dict],
-                                 buckets: list[str], stamp: str):
-    """Cross-cartridge acc-per-hop table → stdout + appended to _summary.log."""
-    labels = list(results)
-    header = f"{'hop':>6} " + " ".join(f"{lab[:16]:>16}" for lab in labels)
-    rows_txt = [f"run {stamp}", header, "-" * len(header)]
-    for b in buckets:
-        cells = []
-        for lab in labels:
-            ok, n = results[lab].get(b, (0, 0))
-            cells.append(f"{f'{ok}/{n}':>16}" if n else f"{'-':>16}")
-        rows_txt.append(f"{b:>6} " + " ".join(cells))
-    # overall row
-    cells = []
-    for lab in labels:
-        ok = sum(v[0] for v in results[lab].values())
-        n = sum(v[1] for v in results[lab].values())
-        cells.append(f"{f'{ok}/{n}':>16}")
-    rows_txt.append(f"{'TOTAL':>6} " + " ".join(cells))
-    block = "\n".join(rows_txt)
-
-    print("\n" + block + "\n")
-    with (out_dir / "_summary.log").open("a", encoding="utf-8") as f:
-        f.write(block + "\n\n")
+    return records
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -234,10 +161,10 @@ def main():
     ap.add_argument("--model", default="Qwen/Qwen3-1.7B",
                     help="Base model (must match what the cartridge was trained on).")
     ap.add_argument("--test-meta", default=None, help="Override test_meta.json path.")
-    ap.add_argument("--forest", default=None, help="Override forest.json (path_valid).")
     ap.add_argument("--out-dir", default=None,
-                    help="Where logs go (default: outputs_graph3/quick_eval).")
-    ap.add_argument("--max-new-tokens", type=int, default=4096)
+                    help="Where JSONs go (default: outputs_graph3/quick_eval).")
+    ap.add_argument("--max-new-tokens", type=int, default=4096,
+                    help="Push/pop scratchpads reach ~2.7k tokens — keep headroom.")
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--temperature", type=float, default=0.0)
     ap.add_argument("--thinking", action="store_true",
@@ -249,9 +176,7 @@ def main():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda)
 
     import torch
-    from datetime import datetime
     from examples.graph_3 import paths
-    from examples.graph_3.data_gen.graph_index import GraphIndex
     from transformers import AutoTokenizer
     from cartridges.models.qwen.modeling_qwen3 import FlexQwen3ForCausalLM
 
@@ -268,19 +193,15 @@ def main():
     meta = json.loads(test_meta.read_text())
     questions = select_questions(meta, args.per_hop, args.seed)
 
-    forest_path = Path(args.forest) if args.forest else paths.FOREST_JSON
-    index = GraphIndex.load(forest_path) if forest_path.exists() else None
-    if index is None:
-        print(f"WARNING: forest not found at {forest_path} — path_valid will be null.")
-
     out_dir = Path(args.out_dir) if args.out_dir else (paths.OUTPUTS_DIR / "quick_eval")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Record the shared selection so cross-run logs can be cross-checked.
+    # Record the shared selection so cross-run JSONs can be cross-checked.
     (out_dir / "selected_questions.json").write_text(
         json.dumps(
             [{"n_bucket": str(m["n_bucket"]), "question": m["question"],
-              "answer": m["answer"]} for m in questions],
+              "gold_answer": m.get("answer"), "gold_path": m.get("path")}
+             for m in questions],
             indent=2, ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -297,29 +218,32 @@ def main():
     ).to(device)
     model.eval()
 
-    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    all_buckets = _bucket_order({str(m["n_bucket"]) for m in questions})
-    run_summaries: dict[str, dict] = {}
-
     for raw in args.checkpoints:
         ckpt = resolve_checkpoint(raw)
         if not ckpt.exists():
             print(f"SKIP (not found): {raw}")
             continue
         label = cartridge_label(ckpt)
-        print(f"\n>>> Eval cartridge: {label}  ({ckpt})")
-        rows = eval_cartridge(ckpt, tokenizer, model, device, questions, index, args)
+        print(f"\n>>> Generating: {label}  ({ckpt})")
+        records = generate_cartridge(ckpt, tokenizer, model, device, questions, args)
 
-        log_path = out_dir / f"{label}.log"
-        summary = write_cartridge_log(log_path, label, ckpt, rows, args)
-        run_summaries[label] = summary
+        payload = {
+            "cartridge":      label,
+            "checkpoint":     str(ckpt),
+            "model":          args.model,
+            "thinking":       args.thinking,
+            "max_new_tokens": args.max_new_tokens,
+            "temperature":    args.temperature,
+            "per_hop":        args.per_hop,
+            "seed":           args.seed,
+            "generations":    records,
+        }
+        out_path = out_dir / f"{label}.json"
+        out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+        print(f"    {len(records)} generations  →  {out_path}")
 
-        ok = sum(r["correct"] for r in rows)
-        print(f"    acc {ok}/{len(rows)}  →  {log_path}")
-
-    if run_summaries:
-        print_and_append_run_summary(out_dir, run_summaries, all_buckets, stamp)
-    print("Done.")
+    print("\nDone.")
 
 
 if __name__ == "__main__":
