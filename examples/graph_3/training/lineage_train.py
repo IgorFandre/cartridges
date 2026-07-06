@@ -8,6 +8,7 @@ Env vars:
   EXP                exp1 | exp2 | exp3 (default exp1)
   CARTRIDGE_TOKENS   token budget for KVFromText init (default 512; empty=full)
   EPOCHS             (default 10)
+  OPTIMIZER          adam | muon (default adam)
   LR                 (default 2e-2)
   MAX_STEPS          (default 200; -1=full EPOCHS)
   SAVE_EVERY         (default MAX_STEPS, i.e. one checkpoint)
@@ -36,10 +37,15 @@ from examples.graph_3.training.handshake_eval_dataset import HandshakeEvalDatase
 # ── Env knobs ─────────────────────────────────────────────────────────────────
 EXP        = os.environ.get("EXP",        "exp1").lower()
 EPOCHS     = int(os.environ.get("EPOCHS", "10"))
+OPTIMIZER  = os.environ.get("OPTIMIZER",  "adam").strip().lower()
 LR         = float(os.environ.get("LR",   "2e-2"))
 MAX_STEPS  = int(os.environ.get("MAX_STEPS", "200"))
-SAVE_EVERY = int(os.environ.get("SAVE_EVERY", str(max(1, MAX_STEPS))))
-N_EVALS    = int(os.environ.get("N_EVALS", "4"))
+# Default: checkpoint twice (e.g. step 150 and 300 with MAX_STEPS=300).
+SAVE_EVERY = int(os.environ.get("SAVE_EVERY", str(max(1, MAX_STEPS // 2))))
+# N_EVALS<=0 (default) disables all generation eval — no before-training eval,
+# no periodic eval, and (since generate_evals=[]) no final eval either. Eval
+# generation is the dominant extra cost; off by default for fast training.
+N_EVALS    = int(os.environ.get("N_EVALS", "0"))
 SEED       = int(os.environ.get("SEED",    "42"))
 # STEPBYSTEP=1 trains on the dataset_stepbystep.parquet variant (full-search
 # traces) instead of the default dataset.parquet.
@@ -138,6 +144,7 @@ def build_config(
             max_tokens=cartridge_tokens,
         ),
         seed=SEED,
+        optimizer=OPTIMIZER,
         lr=LR,
         epochs=EPOCHS,
         max_optimizer_steps=MAX_STEPS,
@@ -171,7 +178,7 @@ def build_config(
         output_dir=str(output_dir),
         name=run_name,
         distributed_backend="gloo",
-        wandb=WandBConfig(tags=["handshake", exp, "train"]),
+        wandb=WandBConfig(tags=["handshake", exp, "train", OPTIMIZER]),
     )
 
 

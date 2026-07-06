@@ -28,6 +28,7 @@ from transformers import AutoTokenizer
 import wandb
 
 from cartridges.cache import AttnConfig, KVCacheFactory, TrainableCache
+from cartridges.optimizers import Muon
 from cartridges.datasets import (
     DatasetBatch,
     GenerateEvalDataset,
@@ -92,10 +93,14 @@ class TrainConfig(RunConfig):
     device: str = "cuda"
     distributed_backend: Literal["nccl", "gloo"] = "nccl"
 
-    optimizer: Literal["adam"] = "adam"
+    optimizer: Literal["adam", "muon"] = "adam"
     lr: float = 1e-4
     lr_scheduler: Optional[Scheduler.Config] = None
     weight_decay: float = 0.0
+
+    # Muon-specific hyperparameters (used only when optimizer="muon")
+    muon_momentum: float = 0.95
+    muon_ns_steps: int = 5
 
     kv_cache_initializer: Optional[KVCacheFactory.Config] = None
     pretrained_cache_path: Optional[str] = None
@@ -269,11 +274,21 @@ def train(config: TrainConfig):
         num_workers=1, 
     )
 
-    optimizer = optim.Adam(
-        wrapped_model.parameters() if use_peft else cache.parameters(), 
-        lr=config.lr,
-        weight_decay=config.weight_decay,
-    )
+    train_params = wrapped_model.parameters() if use_peft else cache.parameters()
+    if config.optimizer == "adam":
+        optimizer = optim.Adam(
+            train_params,
+            lr=config.lr,
+            weight_decay=config.weight_decay,
+        )
+    elif config.optimizer == "muon":
+        optimizer = Muon(
+            train_params,
+            lr=config.lr,
+            momentum=config.muon_momentum,
+            weight_decay=config.weight_decay,
+            ns_steps=config.muon_ns_steps,
+        )
 
     # Initialize counter variables
     # optimizer_step: number of optimizer steps taken, iter_idx: number of loop iterations, epoch_idx: number of epochs completed
