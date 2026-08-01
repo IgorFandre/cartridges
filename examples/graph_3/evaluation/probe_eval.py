@@ -298,6 +298,10 @@ def patch_flex_attention_for_cpu():
 
     Same trick as cartridges/utils/chat_local.py: the forward reads these off
     the module at call time, so rebinding before generation is enough.
+
+    torch will then warn on every call that the unfused path materializes the
+    full scores matrix. That warning is left in place on purpose: it is the
+    visible signal that this run is NOT using the fused CUDA kernel.
     """
     import cartridges.models.attention as attn_mod
     from torch.nn.attention.flex_attention import flex_attention
@@ -407,10 +411,24 @@ def main():
     elif torch.backends.mps.is_available():
         device = "mps"
     else:
-        device = "cpu"
+        # Never fall back to CPU on our own: unfused FlexAttention over a 4k-token
+        # scratchpad turns a few minutes on a GPU box into hours, and the only
+        # sign of it is a torch UserWarning buried in the log. Make it a decision.
+        raise SystemExit(
+            "No CUDA device visible — refusing to fall back to CPU silently.\n"
+            f"  torch {torch.__version__}, built for CUDA {torch.version.cuda}, "
+            f"device_count={torch.cuda.device_count()}, "
+            f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}\n"
+            "On a GPU box this usually means a CPU-only torch in the venv or an "
+            "empty CUDA_VISIBLE_DEVICES.\n"
+            "To run on CPU anyway (hours, not minutes) pass --device cpu explicitly."
+        )
+
     if device == "cpu":
         patch_flex_attention_for_cpu()
         args.batch_size = 1
+        print("Running on CPU: eager FlexAttention, fp32, batch 1 — expect hours, "
+              "not minutes. torch will warn about the unfused kernel on every call.")
     dtype = torch.bfloat16 if device != "cpu" else torch.float32
 
     adj, people = load_graph(paths.FOREST_JSON)
