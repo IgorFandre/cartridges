@@ -294,20 +294,41 @@ def score(q: dict, text: str, people: set[str]) -> dict:
 
 # ── Generation ────────────────────────────────────────────────────────────────
 def patch_flex_attention_for_cpu():
-    """Swap compiled FlexAttention for the eager op (no CUDA/Triton on CPU).
+    """Rebind FlexAttention for a CPU run: compiled if the platform lowers it,
+    eager otherwise.
 
-    Same trick as cartridges/utils/chat_local.py: the forward reads these off
-    the module at call time, so rebinding before generation is enough.
+    `cartridges.models.attention` compiles with `mode="max-autotune-no-cudagraphs"`,
+    which needs Triton/CUDA. Inductor does have a CPU lowering for flex_attention
+    (x86 inference), but not on every platform — arm64 raises
+    "torch.compile on current platform is not supported for CPU". The failure
+    only surfaces on the first call, so compile is tried and falls back once,
+    permanently, on error.
 
-    torch will then warn on every call that the unfused path materializes the
-    full scores matrix. That warning is left in place on purpose: it is the
-    visible signal that this run is NOT using the fused CUDA kernel.
+    `flex_attention_forward` reads these names off the module at call time, so
+    rebinding here (before any generation) is enough — no need to touch the
+    shared file the GPU training/eval scripts depend on.
     """
+    import torch
+
     import cartridges.models.attention as attn_mod
     from torch.nn.attention.flex_attention import flex_attention
 
-    attn_mod.flex_attention_train = flex_attention
-    attn_mod.flex_attention_generate = flex_attention
+    compiled = torch.compile(flex_attention, dynamic=True)
+    use_compiled = [True]
+
+    def cpu_flex_attention(*args, **kwargs):
+        if use_compiled[0]:
+            try:
+                return compiled(*args, **kwargs)
+            except Exception as e:
+                use_compiled[0] = False
+                print(f"  torch.compile unavailable for CPU FlexAttention "
+                      f"({type(e).__name__}) — falling back to the eager op, "
+                      f"which materializes the full scores matrix. Slower.")
+        return flex_attention(*args, **kwargs)
+
+    attn_mod.flex_attention_train = cpu_flex_attention
+    attn_mod.flex_attention_generate = cpu_flex_attention
 
 
 def run_cartridge(ckpt: Path, tokenizer, model, device, questions, people, args) -> list[dict]:
